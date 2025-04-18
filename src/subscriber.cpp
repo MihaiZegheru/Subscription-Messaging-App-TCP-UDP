@@ -13,6 +13,10 @@
 // TODO: Move to common file
 #define CHECK(exp, msg) assert((void(msg), !(exp)))
 
+const int kBuffLen = 256;
+
+char buff[kBuffLen];
+
 int main(int argc, char *argv[]) {
     if (argc != 4) {
         std::cout << "Usage: " << argv[0] << " <client_id> <server_ip> <server_port>\n";
@@ -47,8 +51,34 @@ int main(int argc, char *argv[]) {
     // Send Client ID to the server
     send(sockfd, clientID, clientIDLen, 0);
 
-    while (true) {
+    // Initialise fd_set
+    fd_set fds;
 
+    FD_ZERO(&fds);
+    FD_SET(STDIN_FILENO, &fds);
+    FD_SET(sockfd, &fds);
+
+    int fdmax = sockfd;
+
+    bool isRunning = true;
+
+    while (isRunning) {
+        memset(buff, 0, kBuffLen);
+
+        // Wait until a fd is used
+        rc = select(fdmax + 1, &fds, NULL, NULL, NULL);
+        CHECK(rc < 0, "select");
+
+        if (FD_ISSET(STDIN_FILENO, &fds)) {
+
+        }
+        if (FD_ISSET(sockfd, &fds)) {
+            rc = recv(sockfd, buff, kBuffLen, 0);
+            CHECK(rc < 0, "recv");
+
+            // TODO: Check for server messages
+
+        }
     }
 
     // Close socket
