@@ -8,17 +8,13 @@ SUBSCRIBER_SRC=$(SRCPATHS)/subscriber.cpp
 
 
 CFLAGS=-Wall -Werror -Wno-error=unused-variable
-CC=g++
-
-server: $(SERVER_BIN)
-
-subscriber: $(SUBSCRIBER_BIN)
+CXX=g++
 
 $(SERVER_BIN): $(SERVER_SRC)
-	$(CC) $(CFLAGS) -o $@ $^ 
+	$(CXX) $(CFLAGS) -o $@ $^ 
 
 $(SUBSCRIBER_BIN): $(SUBSCRIBER_SRC)
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CXX) $(CFLAGS) -o $@ $^
 
 clean:
 	rm -rf $(SERVER_BIN) $(SUBSCRIBER_BIN) 
