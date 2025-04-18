@@ -48,6 +48,36 @@ void HandleSTDIN(bool &isRunning) {
     }
 }
 
+/**
+ * May modify reference parameters fds and fdmax.
+*/
+void HandleTCP(int sockfdTCP, fd_set &fds, int &fdmax) {
+    int rc;
+
+    sockaddr_in clientAddr;
+    socklen_t clientLen = sizeof(clientAddr);
+
+    // Accept new connection
+    int newSockfdTCP = accept(sockfdTCP, (sockaddr *)&clientAddr,
+                                &clientLen);
+    CHECK(newSockfdTCP < 0, "accept");
+
+    // Receive message
+    rc = recv(newSockfdTCP, buff, kBuffLen, 0);
+    CHECK(rc < 0, "recv");
+
+    // Update fd_set
+    FD_SET(newSockfdTCP, &fds);
+    fdmax = std::max(fdmax, newSockfdTCP);
+
+    LOG_INFO("New client "
+        << (std::string)buff
+        << " connected from " << inet_ntoa(clientAddr.sin_addr)
+        << ":" << htons(clientAddr.sin_port) << std::endl);
+
+    // TODO: Check if client is new or not.
+}
+
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         std::cout << "Usage: " << argv[0] << " <port>\n";
@@ -121,29 +151,7 @@ int main(int argc, char *argv[]) {
             } else if (fd == sockfdUDP) {
 
             } else if (fd == sockfdTCP) {
-                sockaddr_in clientAddr;
-                socklen_t clientLen = sizeof(clientAddr);
-
-                // Accept new connection
-                int newSockfdTCP = accept(sockfdTCP, (sockaddr *)&clientAddr,
-                                          &clientLen);
-                CHECK(newSockfdTCP < 0, "accept");
-
-                // Receive message
-                rc = recv(newSockfdTCP, buff, kBuffLen, 0);
-                CHECK(rc < 0, "recv");
-
-                // Update fd_set
-                FD_SET(newSockfdTCP, &fds);
-                fdmax = std::max(fdmax, newSockfdTCP);
-
-                LOG_INFO("New client "
-                    << (std::string)buff
-                    << " connected from " << inet_ntoa(clientAddr.sin_addr)
-                    << ":" << htons(clientAddr.sin_port) << std::endl);
-
-                // TODO: Check if client is new or not.
-
+                HandleTCP(sockfdTCP, fds, fdmax);
             } else {
 
             }
