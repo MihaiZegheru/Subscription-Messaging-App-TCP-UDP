@@ -16,6 +16,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
+// TODO: Move to common file
 #define CHECK(exp, msg) assert((void(msg), !(exp)))
 
 const int kMaxClients = 5;
@@ -28,39 +29,39 @@ int main(int argc, char *argv[]) {
 
     int rc;
 
-    // Parse the port
+    // Parse arguments
     const uint16_t port = atoi(argv[1]);
     CHECK(port == 0, "Invalid port");
 
     // Initialise UDP socket
-    const int sockUDP = socket(PF_INET, SOCK_DGRAM, 0);
-    CHECK(sockUDP < 0, "sockUDP");
+    const int sockfdUDP = socket(PF_INET, SOCK_DGRAM, 0);
+    CHECK(sockfdUDP < 0, "socket");
 
     // Initialise TCP socket
-    const int sockTCP = socket(AF_INET, SOCK_STREAM, 0);
-    CHECK(sockTCP < 0, "sockTCP");
+    const int sockfdTCP = socket(AF_INET, SOCK_STREAM, 0);
+    CHECK(sockfdTCP < 0, "socket");
 
     sockaddr_in serverAddr;
     
     // Bind UDP
-    rc = bind(sockUDP, (sockaddr *)&serverAddr, sizeof(sockaddr));
-    CHECK(rc < 0, "bind UDP");
+    rc = bind(sockfdUDP, (sockaddr *)&serverAddr, sizeof(sockaddr));
+    CHECK(rc < 0, "bind");
 
     // Bind TCP
-    rc = bind(sockTCP, (sockaddr *)&serverAddr, sizeof(sockaddr));
-    CHECK(rc < 0, "bind TCP");
+    rc = bind(sockfdTCP, (sockaddr *)&serverAddr, sizeof(sockaddr));
+    CHECK(rc < 0, "bind");
 
-    // Listen over TCP
-    rc = listen(sockTCP, kMaxClients);
+    // Listen on TCP
+    rc = listen(sockfdTCP, kMaxClients);
     CHECK(rc < 0, "listen");
 
     while (true) {
-        
+
     }
 
     // Close sockets
-    close(sockUDP);
-    close(sockTCP);
+    close(sockfdUDP);
+    close(sockfdTCP);
 
     return 0;
 }
