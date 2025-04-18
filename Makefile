@@ -3,12 +3,12 @@ SUBSCRIBER_BIN=subscriber
 
 SRCPATHS=src
 
-SERVER_SRC=$(SRCPATHS)/server.c
-SUBSCRIBER_SRC=$(SRCPATHS)/subscriber.c
+SERVER_SRC=$(SRCPATHS)/server.cpp
+SUBSCRIBER_SRC=$(SRCPATHS)/subscriber.cpp
 
 
 CFLAGS=-Wall -Werror -Wno-error=unused-variable
-CC=gcc
+CC=g++
 
 server: $(SERVER_BIN)
 
