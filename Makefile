@@ -7,14 +7,19 @@ SERVER_SRC=$(SRCPATHS)/server.cpp
 SUBSCRIBER_SRC=$(SRCPATHS)/subscriber.cpp
 
 
-CFLAGS=-Wall -Werror -Wno-error=unused-variable
+CXXFLAGS=-Wall -Werror -Wno-error=unused-variable
 CXX=g++
 
+all: $(SERVER_BIN) $(SUBSCRIBER_BIN)
+
+debug: CXXFLAGS += -DDEBUG
+debug: clean all
+
 $(SERVER_BIN): $(SERVER_SRC)
-	$(CXX) $(CFLAGS) -o $@ $^ 
+	$(CXX) $(CXXFLAGS) -o $@ $^ 
 
 $(SUBSCRIBER_BIN): $(SUBSCRIBER_SRC)
-	$(CXX) $(CFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) -o $@ $^
 
 clean:
 	rm -rf $(SERVER_BIN) $(SUBSCRIBER_BIN) 

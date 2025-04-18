@@ -17,16 +17,28 @@
 #include <sys/socket.h>
 
 // TODO: Move to common file
+
 #define CHECK(exp, msg) assert((void(msg), !(exp)))
+
+#ifdef DEBUG
+    #define LOG_DEBUG(msg) std::cout << "DEBUG:: " << msg << std::endl
+#else
+    #define LOG_DEBUG(msg)
+#endif
+
+#define LOG_INFO(msg) std::cout << msg << std::endl
 
 const int kMaxClients = 5;
 const int kBuffLen = 256;
 
 char buff[kBuffLen];
 
+/**
+ * May modify reference parameter isRunning.
+*/
 void HandleSTDIN(bool &isRunning) {
     fgets(buff, kBuffLen - 1, stdin);
-    if (!strcmp(buff, "exit\n")) {
+    if (!strncmp(buff, "exit", 4)) {
         isRunning = false;
 
         // TODO: Send exit message to clients
@@ -76,8 +88,9 @@ int main(int argc, char *argv[]) {
     CHECK(rc < 0, "listen");
 
     // Initialise fd_set
-    fd_set fds;
+    fd_set fds, tmpfds;
 
+    FD_ZERO(&tmpfds);
     FD_ZERO(&fds);
     FD_SET(STDIN_FILENO, &fds);
     FD_SET(sockfdUDP, &fds);
@@ -90,12 +103,16 @@ int main(int argc, char *argv[]) {
     while (isRunning) {
         memset(buff, 0, kBuffLen);
 
-        // Wait until fd is used
-        rc = select(fdmax + 1, &fds, NULL, NULL, NULL);
+        tmpfds = fds;
+
+        // Wait until a fd is used
+        rc = select(fdmax + 1, &tmpfds, NULL, NULL, NULL);
         CHECK(rc < 0, "select");
 
+        LOG_DEBUG("Unblocked fd.");
+        
         for (int fd = 0; fd <= fdmax; fd++) {
-            if (!FD_ISSET(fd, &fds)) {
+            if (!FD_ISSET(fd, &tmpfds)) {
                 continue;
             }
 
@@ -104,6 +121,28 @@ int main(int argc, char *argv[]) {
             } else if (fd == sockfdUDP) {
 
             } else if (fd == sockfdTCP) {
+                sockaddr_in clientAddr;
+                socklen_t clientLen = sizeof(clientAddr);
+
+                // Accept new connection
+                int newSockfdTCP = accept(sockfdTCP, (sockaddr *)&clientAddr,
+                                          &clientLen);
+                CHECK(newSockfdTCP < 0, "accept");
+
+                // Receive message
+                rc = recv(newSockfdTCP, buff, kBuffLen, 0);
+                CHECK(rc < 0, "recv");
+
+                // Update fd_set
+                FD_SET(newSockfdTCP, &fds);
+                fdmax = std::max(fdmax, newSockfdTCP);
+
+                LOG_INFO("New client "
+                    << (std::string)buff
+                    << " connected from " << inet_ntoa(clientAddr.sin_addr)
+                    << ":" << htons(clientAddr.sin_port) << std::endl);
+
+                // TODO: Check if client is new or not.
 
             } else {
 

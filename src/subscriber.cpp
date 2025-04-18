@@ -71,13 +71,12 @@ int main(int argc, char *argv[]) {
 
         if (FD_ISSET(STDIN_FILENO, &fds)) {
 
-        }
-        if (FD_ISSET(sockfd, &fds)) {
+        } else if (FD_ISSET(sockfd, &fds)) {
             rc = recv(sockfd, buff, kBuffLen, 0);
             CHECK(rc < 0, "recv");
 
             // TODO: Check for server messages
-
+    
         }
     }
 
