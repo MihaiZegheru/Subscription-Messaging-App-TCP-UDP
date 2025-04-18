@@ -33,50 +33,98 @@ const int kBuffLen = 256;
 
 char buff[kBuffLen];
 
+namespace server {
+
+std::unordered_map<std::string, bool> clients;
+std::unordered_map<int, std::string> socketToClient;
+std::multimap<std::string, std::string> topicToClients;
+
 /**
  * May modify reference parameter isRunning.
 */
 void HandleSTDIN(bool &isRunning) {
-    fgets(buff, kBuffLen - 1, stdin);
-    if (!strncmp(buff, "exit", 4)) {
+    std::string input;
+    std::cin >> input;
+
+    if (input == "exit") {
         isRunning = false;
 
         // TODO: Send exit message to clients
 
     } else {
-        std::cout << "Command does not exist.\n";
+        LOG_INFO("Command does not exist.\n");
     }
 }
 
 /**
  * May modify reference parameters fds and fdmax.
 */
-void HandleTCP(int sockfdTCP, fd_set &fds, int &fdmax) {
+void HandleAcceptTCP(int sockfdTCP, fd_set &fds, int &fdmax) {
     int rc;
 
     sockaddr_in clientAddr;
     socklen_t clientLen = sizeof(clientAddr);
 
     // Accept new connection
-    int newSockfdTCP = accept(sockfdTCP, (sockaddr *)&clientAddr,
+    int sockfd = accept(sockfdTCP, (sockaddr *)&clientAddr,
                                 &clientLen);
-    CHECK(newSockfdTCP < 0, "accept");
+    CHECK(sockfd < 0, "accept");
 
     // Receive message
-    rc = recv(newSockfdTCP, buff, kBuffLen, 0);
+    rc = recv(sockfd, buff, kBuffLen, 0);
     CHECK(rc < 0, "recv");
 
     // Update fd_set
-    FD_SET(newSockfdTCP, &fds);
-    fdmax = std::max(fdmax, newSockfdTCP);
+    FD_SET(sockfd, &fds);
+    fdmax = std::max(fdmax, sockfd);
 
-    LOG_INFO("New client "
-        << (std::string)buff
-        << " connected from " << inet_ntoa(clientAddr.sin_addr)
-        << ":" << htons(clientAddr.sin_port) << std::endl);
+    std::string clientID = (std::string)buff;
+
+    if (clients.find(clientID) == clients.end()) {
+        clients.insert({clientID, true});
+        socketToClient.insert({sockfd, clientID});
+
+        LOG_INFO("New client " << clientID << " connected from "
+                 << inet_ntoa(clientAddr.sin_addr) << ":"
+                 << htons(clientAddr.sin_port));
+    } else {
+        
+    }
 
     // TODO: Check if client is new or not.
 }
+
+void HandleTCP(int sockfd) {
+    int rc;
+
+    rc = recv(sockfd, buff, kBuffLen, 0);
+    CHECK(rc < 0, "recv");
+
+    std::string message = buff;
+    std::string &clientID = socketToClient[sockfd];
+
+    if (message == "exit") {
+        LOG_INFO("Client " << clientID << " disconnected");
+    } else if (message.substr(0, 3) == "sub") {
+        message.erase(0, 4);
+        topicToClients.insert({message, clientID});
+        LOG_DEBUG("Client " << clientID << " subscribing to " << message);
+    } else if (message.substr(0, 3) == "uns") {
+        message.erase(0, 4);
+        auto range = topicToClients.equal_range(message);
+        for (auto it = range.first; it != range.second; it++) {
+            if (it->second == clientID) {
+                topicToClients.erase(it);
+                break;
+            }
+        }
+        LOG_DEBUG("Client " << clientID << " unsubscribing from " << message);
+    } else {
+        LOG_DEBUG("Server command unrecognised: " << message);
+    }
+}
+
+} // namespace server
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
@@ -147,13 +195,13 @@ int main(int argc, char *argv[]) {
             }
 
             if (fd == STDIN_FILENO) {
-                HandleSTDIN(isRunning);
+                server::HandleSTDIN(isRunning);
             } else if (fd == sockfdUDP) {
 
             } else if (fd == sockfdTCP) {
-                HandleTCP(sockfdTCP, fds, fdmax);
+                server::HandleAcceptTCP(sockfdTCP, fds, fdmax);
             } else {
-
+                server::HandleTCP(fd);
             }
         }
     }

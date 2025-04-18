@@ -7,15 +7,74 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <sstream>
 #include <sys/types.h>
 #include <sys/socket.h>
 
 // TODO: Move to common file
 #define CHECK(exp, msg) assert((void(msg), !(exp)))
 
+#ifdef DEBUG
+    #define LOG_DEBUG(msg) std::cout << "DEBUG:: " << msg << std::endl
+#else
+    #define LOG_DEBUG(msg)
+#endif
+
+#define LOG_INFO(msg) std::cout << msg << std::endl
+
 const int kBuffLen = 256;
 
 char buff[kBuffLen];
+
+namespace subscriber {
+
+/**
+ * May modify reference parameter isRunning.
+*/
+void HandleSTDIN(int sockfd, bool &isRunning) {
+    int rc;
+
+    std::string input;
+    std::cin >> input;
+
+    if (input == "exit") {
+        isRunning = false;
+    } else if (input == "subscribe") {
+        std::cin >> input;
+        std::string message = "sub/" + input;
+
+        rc = send(sockfd, message.c_str(), message.length(), 0);
+        CHECK(rc < 0, "send");
+
+        LOG_INFO("Subscribed to topic " << input);
+    } else if (input == "unsubscribe") {
+        std::cin >> input;
+        std::string message = "uns/" + input;
+
+        rc = send(sockfd, message.c_str(), message.length(), 0);
+        CHECK(rc < 0, "send");
+
+        LOG_INFO("Unsubscribed from topic " << input);
+    } else {
+        LOG_INFO("Command does not exist.\n");
+    }
+}
+
+/**
+ * May modify reference parameter isRunning.
+*/
+void HandleTCP(int sockfd, bool &isRunning) {
+    int rc;
+
+    rc = recv(sockfd, buff, kBuffLen, 0);
+    CHECK(rc < 0, "recv");
+
+    if ((std::string)buff == "exit") {
+        isRunning = false;
+    }
+}
+
+} // namespace subscriber
 
 int main(int argc, char *argv[]) {
     if (argc != 4) {
@@ -70,13 +129,9 @@ int main(int argc, char *argv[]) {
         CHECK(rc < 0, "select");
 
         if (FD_ISSET(STDIN_FILENO, &fds)) {
-
+            subscriber::HandleSTDIN(sockfd, isRunning);
         } else if (FD_ISSET(sockfd, &fds)) {
-            rc = recv(sockfd, buff, kBuffLen, 0);
-            CHECK(rc < 0, "recv");
-
-            // TODO: Check for server messages
-    
+            subscriber::HandleTCP(sockfd, isRunning);
         }
     }
 
