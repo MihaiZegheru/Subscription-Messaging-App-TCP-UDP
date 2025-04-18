@@ -41,7 +41,12 @@ int main(int argc, char *argv[]) {
     const int sockfdTCP = socket(AF_INET, SOCK_STREAM, 0);
     CHECK(sockfdTCP < 0, "socket");
 
+    // Initialise serverAddr
     sockaddr_in serverAddr;
+
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_addr.s_addr = INADDR_ANY;
+    serverAddr.sin_port = htons(port);
     
     // Bind UDP
     rc = bind(sockfdUDP, (sockaddr *)&serverAddr, sizeof(sockaddr));
