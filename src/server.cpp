@@ -2,9 +2,9 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <iostream>
-#include <iterator>
-#include <map>
 #include <unordered_map>
+#include <unordered_set>
+#include <map>
 #include <vector>
 #include <sstream>
 #include <math.h>
@@ -15,6 +15,7 @@
 #include <cassert>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/epoll.h>
 
 // TODO: Move to common file
 
@@ -30,12 +31,13 @@
 
 const int kMaxClients = 5;
 const int kBuffLen = 256;
+const int kMaxEventsNum = 100;
 
 char buff[kBuffLen];
 
 namespace server {
 
-std::unordered_map<std::string, bool> clients;
+std::unordered_set<std::string> clients;
 std::unordered_map<int, std::string> socketToClient;
 std::multimap<std::string, std::string> topicToClients;
 
@@ -50,48 +52,51 @@ void HandleSTDIN(bool &isRunning) {
         isRunning = false;
 
         // TODO: Send exit message to clients
-
     } else {
         LOG_INFO("Command does not exist.\n");
     }
 }
 
+void HandleUDP() {
+
+}
+
 /**
- * May modify reference parameters fds and fdmax.
+ * May modify reference parameters epollfd and fdmax.
 */
-void HandleAcceptTCP(int sockfdTCP, fd_set &fds, int &fdmax) {
+void HandleAcceptTCP(int sockfdTCP, int epollfd) {
     int rc;
 
     sockaddr_in clientAddr;
     socklen_t clientLen = sizeof(clientAddr);
 
     // Accept new connection
-    int sockfd = accept(sockfdTCP, (sockaddr *)&clientAddr,
-                                &clientLen);
+    int sockfd = accept(sockfdTCP, (sockaddr *)&clientAddr, &clientLen);
     CHECK(sockfd < 0, "accept");
 
     // Receive message
     rc = recv(sockfd, buff, kBuffLen, 0);
     CHECK(rc < 0, "recv");
 
-    // Update fd_set
-    FD_SET(sockfd, &fds);
-    fdmax = std::max(fdmax, sockfd);
+    // Add new socket to epoll
+    epoll_event ev;
+    ev.events = EPOLLIN;
+    ev.data.fd = sockfd;
+    rc = epoll_ctl(epollfd, EPOLL_CTL_ADD, sockfd, &ev);
+    CHECK(rc < 0, "epoll_ctl");
 
     std::string clientID = (std::string)buff;
 
     if (clients.find(clientID) == clients.end()) {
-        clients.insert({clientID, true});
+        clients.insert(clientID);
         socketToClient.insert({sockfd, clientID});
 
         LOG_INFO("New client " << clientID << " connected from "
                  << inet_ntoa(clientAddr.sin_addr) << ":"
                  << htons(clientAddr.sin_port));
     } else {
-        
+        // Handle already existing client
     }
-
-    // TODO: Check if client is new or not.
 }
 
 void HandleTCP(int sockfd) {
@@ -104,6 +109,7 @@ void HandleTCP(int sockfd) {
     std::string &clientID = socketToClient[sockfd];
 
     if (message == "exit") {
+        clients.erase(clientID);
         LOG_INFO("Client " << clientID << " disconnected");
     } else if (message.substr(0, 3) == "sub") {
         message.erase(0, 4);
@@ -165,41 +171,43 @@ int main(int argc, char *argv[]) {
     rc = listen(sockfdTCP, kMaxClients);
     CHECK(rc < 0, "listen");
 
-    // Initialise fd_set
-    fd_set fds, tmpfds;
+    // Initialise epoll
+    int epollfd = epoll_create1(0);
+    CHECK(epollfd < 0, "epoll_create1");
 
-    FD_ZERO(&tmpfds);
-    FD_ZERO(&fds);
-    FD_SET(STDIN_FILENO, &fds);
-    FD_SET(sockfdUDP, &fds);
-    FD_SET(sockfdTCP, &fds);
+    epoll_event ev;
+    ev.events = EPOLLIN;
+    ev.data.fd = sockfdUDP;
+    rc = epoll_ctl(epollfd, EPOLL_CTL_ADD, sockfdUDP, &ev);
+    CHECK(rc < 0, "epoll_ctl (UDP)");
 
-    int fdmax = std::max(sockfdUDP, sockfdTCP);
+    ev.data.fd = sockfdTCP;
+    rc = epoll_ctl(epollfd, EPOLL_CTL_ADD, sockfdTCP, &ev);
+    CHECK(rc < 0, "epoll_ctl (TCP)");
+
+    ev.data.fd = STDIN_FILENO;
+    rc = epoll_ctl(epollfd, EPOLL_CTL_ADD, STDIN_FILENO, &ev);
+    CHECK(rc < 0, "epoll_ctl (STDIN)");
 
     bool isRunning = true;
+    epoll_event events[kMaxEventsNum];
 
     while (isRunning) {
         memset(buff, 0, kBuffLen);
 
-        tmpfds = fds;
+        // Wait for events
+        int nfds = epoll_wait(epollfd, events, kMaxEventsNum, -1);
+        CHECK(nfds == -1, "epoll_wait");
 
-        // Wait until a fd is used
-        rc = select(fdmax + 1, &tmpfds, NULL, NULL, NULL);
-        CHECK(rc < 0, "select");
-
-        LOG_DEBUG("Unblocked fd.");
-        
-        for (int fd = 0; fd <= fdmax; fd++) {
-            if (!FD_ISSET(fd, &tmpfds)) {
-                continue;
-            }
+        for (int i = 0; i < nfds; i++) {
+            int fd = events[i].data.fd;
 
             if (fd == STDIN_FILENO) {
                 server::HandleSTDIN(isRunning);
             } else if (fd == sockfdUDP) {
-
+                server::HandleUDP();
             } else if (fd == sockfdTCP) {
-                server::HandleAcceptTCP(sockfdTCP, fds, fdmax);
+                server::HandleAcceptTCP(sockfdTCP, epollfd);
             } else {
                 server::HandleTCP(fd);
             }
@@ -209,6 +217,7 @@ int main(int argc, char *argv[]) {
     // Close sockets
     close(sockfdUDP);
     close(sockfdTCP);
+    close(epollfd);
 
     return 0;
 }
