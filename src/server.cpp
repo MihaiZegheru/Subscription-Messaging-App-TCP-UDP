@@ -16,6 +16,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/epoll.h>
+#include <regex>
 
 #include "common.h"
 
@@ -36,10 +37,77 @@ namespace server {
 
 const int kTopicLen = 50;
 
-std::unordered_set<std::string> clients;
+std::unordered_map<std::string, bool> clients;
 std::unordered_map<int, std::string> socketToClient;
 std::unordered_map<std::string, int> clientToSocket;
 std::multimap<std::string, std::string> topicToClients;
+
+namespace {
+
+std::vector<std::string> split(const std::string& s, char delim = '/') {
+    std::vector<std::string> parts;
+    std::stringstream ss(s);
+    std::string part;
+    while (std::getline(ss, part, delim)) {
+        parts.push_back(part);
+    }
+    return parts;
+}
+
+bool wildcardOverlap(const std::string& a, const std::string& b) {
+    auto A = split(a);
+    auto B = split(b);
+
+    size_t i = 0, j = 0;
+    while (i < A.size() && j < B.size()) {
+        if (A[i] == "*" || B[j] == "*") {
+            // '*' can consume one or more segments — optimistic overlap
+            return true;
+        }
+        if (A[i] == "+" || B[j] == "+" || A[i] == B[j]) {
+            ++i; ++j;
+            continue;
+        }
+        return false;
+    }
+
+    // handle tail segments
+    if ((i == A.size() && j == B.size()) ||
+        (i < A.size() && A[i] == "*") ||
+        (j < B.size() && B[j] == "*")) {
+        return true;
+    }
+
+    return false;
+}
+
+std::string wildcardToRegex(const std::string& wildcard) {
+    std::string regex = "^";
+    for (size_t i = 0; i < wildcard.size(); ++i) {
+        if (wildcard[i] == '*') {
+            regex += ".*";
+        } else if (wildcard[i] == '+') {
+            regex += "[^/]+";
+        } else {
+            // escape regex special characters
+            if (std::string(".^$|()[]{}\\").find(wildcard[i]) != std::string::npos) {
+                regex += '\\';
+            }
+            regex += wildcard[i];
+        }
+    }
+    regex += "$";
+    return regex;
+}
+
+// Check if a topic matches any of the subscriptions
+bool matchesTopic(const std::string& topic, const std::string& subscription) {
+    std::string pattern = wildcardToRegex(subscription);
+    std::regex re(pattern);
+    return std::regex_match(topic, re);
+}
+
+} // namespace
 
 /**
  * May modify reference parameter isRunning.
@@ -51,17 +119,20 @@ void HandleSTDIN(bool &isRunning) {
     if (input == "exit") {
         isRunning = false;
 
-        std::string message = "exit";
-
+        std::string message = "ext";
+        
         for (auto it = clientToSocket.begin(); it != clientToSocket.end(); it++) {
-            int rc = send((*it).second, message.c_str(),
-                          message.length(), 0);
+            if (clients[(*it).first] == false) {
+                continue;
+            }
+            strcpy(buff, message.c_str());
+            int rc = send_all((*it).second, buff, kBuffLen);
             CHECK(rc < 0, "send");
 
-            LOG_INFO("Client " << (*it).first << " disconnected");
+            LOG_INFO("Client " << (*it).first << " disconnected.");
         }
     } else {
-        LOG_INFO("Command does not exist.\n");
+        LOG_DEBUG("Command does not exist.\n");
     }
 }
 
@@ -75,32 +146,6 @@ void HandleUDP(int sockfd) {
                   &clientLen);
     CHECK(rc < 0, "recvfrom");
 
-    // PublishedMessageUDP recvMessage;
-    // recvMessage.topic = std::string(buff, kTopicLen);
-    // recvMessage.topic.erase(recvMessage.topic.find_last_not_of('\0') + 1);
-    // recvMessage.type = buff[kTopicLen];
-    // strncpy(recvMessage.content, buff + kTopicLen + 1, kMaxContentLen);
-
-    // int contentLen = -1;
-    // switch (recvMessage.type) {
-    //     case 0:
-    //         contentLen = kIntTypeLen;
-    //         break;
-    //     case 1:
-    //         contentLen = kShortRealLen;
-    //         break;
-    //     case 2:
-    //         contentLen = kFloatLen;
-    //         break;
-    //     case 3:
-    //         contentLen = kMaxContentLen;
-    //         break;
-    //     default:
-    //         LOG_DEBUG("Case " + std::to_string(recvMessage.type) +
-    //                   " not handled");
-    //         return;
-    // }
-
     size_t offset = 0;
     strcpy(buff + offset, "msg");
     offset += 3;
@@ -111,21 +156,23 @@ void HandleUDP(int sockfd) {
     memcpy(buff + offset, auxBuff, kTopicLen + 1 + kMaxContentLen);
     offset += kTopicLen + 1 + kMaxContentLen;
 
-        int offset2 = offset - kMaxContentLen;
-        std::string deb;
-        for (int i = 0; i < kMaxContentLen; i++) {
-            deb += std::to_string(buff[offset2 + i]) + " ";
-        }
-        LOG_DEBUG(deb);
-
-    // LOG_DEBUG(std::string(buff, kBuffLen));
     std::string topic = std::string(auxBuff, kTopicLen);
     topic.erase(topic.find_last_not_of('\0') + 1);
 
-    auto range = topicToClients.equal_range(topic);
-    for (auto it = range.first; it != range.second; it++) {
-        rc = send(clientToSocket[(*it).second], buff, offset, 0);
-        CHECK(rc < 0, "send");
+    LOG_DEBUG("Search for: " + topic);
+    for (auto const& candidate : topicToClients) {
+        if (!matchesTopic(topic, candidate.first)) {
+            continue;
+        }
+        LOG_DEBUG("Matched with: " + candidate.first);
+        auto range = topicToClients.equal_range(candidate.first);
+        for (auto it = range.first; it != range.second; it++) {
+            if (clients[(*it).second] == false) {
+                continue;
+            }
+            rc = send_all(clientToSocket[(*it).second], buff, kBuffLen);
+            CHECK(rc < 0, "send");
+        }
     }
 }
 
@@ -148,55 +195,96 @@ void HandleAcceptTCP(int sockfdTCP, int epollfd) {
     CHECK(rc < 0, "setsockopt");
 
     // Receive message
-    rc = recv(sockfd, buff, kBuffLen, 0);
+    rc = recv_all(sockfd, buff, kBuffLen);
     CHECK(rc < 0, "recv");
 
-    // Add new socket to epoll
-    epoll_event ev;
-    ev.events = EPOLLIN;
-    ev.data.fd = sockfd;
-    rc = epoll_ctl(epollfd, EPOLL_CTL_ADD, sockfd, &ev);
-    CHECK(rc < 0, "epoll_ctl");
-
     std::string clientID = (std::string)buff;
+    LOG_DEBUG("Received connection request.");
 
     if (clients.find(clientID) == clients.end()) {
-        clients.insert(clientID);
+        clients.insert({clientID, true});
         socketToClient.insert({sockfd, clientID});
         clientToSocket.insert({clientID, sockfd});
+
+        // Add new socket to epoll
+        epoll_event ev;
+        ev.events = EPOLLIN;
+        ev.data.fd = sockfd;
+        rc = epoll_ctl(epollfd, EPOLL_CTL_ADD, sockfd, &ev);
+        CHECK(rc < 0, "epoll_ctl");
 
         LOG_INFO("New client " << clientID << " connected from "
                  << inet_ntoa(clientAddr.sin_addr) << ":"
                  << htons(clientAddr.sin_port));
+        LOG_DEBUG("New client " << clientID << " connected from "
+                 << inet_ntoa(clientAddr.sin_addr) << ":"
+                 << htons(clientAddr.sin_port));
+    } else if (clients[clientID] == false) {
+        clients[clientID] = true;
+        socketToClient.insert({sockfd, clientID});
+        clientToSocket.insert({clientID, sockfd});
+
+        // Add new socket to epoll
+        epoll_event ev;
+        ev.events = EPOLLIN;
+        ev.data.fd = sockfd;
+        rc = epoll_ctl(epollfd, EPOLL_CTL_ADD, sockfd, &ev);
+        CHECK(rc < 0, "epoll_ctl");
+
+        LOG_INFO("New client " << clientID << " connected from "
+                 << inet_ntoa(clientAddr.sin_addr) << ":"
+                 << htons(clientAddr.sin_port));
+        LOG_DEBUG("Welcome back " << clientID << " connected from "
+                 << inet_ntoa(clientAddr.sin_addr) << ":"
+                 << htons(clientAddr.sin_port));
     } else {
-        // Handle already existing client
+        LOG_INFO("Client " << clientID << " already connected.");
+        
+        std::string message = "ext";
+        strcpy(buff, message.c_str());
+        int rc = send_all(sockfd, buff, kBuffLen);
+        CHECK(rc < 0, "send");
+
+        LOG_DEBUG("Client " << clientID << " already connected.");
     }
 }
 
-void HandleTCP(int sockfd) {
+void HandleTCP(int sockfd, int epollfd) {
     int rc;
 
-    rc = recv(sockfd, buff, kBuffLen, 0);
+    rc = recv_all(sockfd, buff, kBuffLen);
     CHECK(rc < 0, "recv");
 
     std::string message = buff;
     std::string &clientID = socketToClient[sockfd];
 
     if (message == "ext") {
-        clients.erase(clientID);
-        LOG_INFO("Client " << clientID << " disconnected");
+        clients[clientID] = false;
+        epoll_ctl(epollfd, EPOLL_CTL_DEL, sockfd, NULL);
+        close(sockfd);
+
+        LOG_INFO("Client " << clientID << " disconnected.");
+        LOG_DEBUG("Client " << clientID << " disconnected.");
     } else if (message.substr(0, 3) == "sub") {
         message.erase(0, 4);
         topicToClients.insert({message, clientID});
         LOG_DEBUG("Client " << clientID << " subscribing to " << message);
     } else if (message.substr(0, 3) == "uns") {
         message.erase(0, 4);
-        auto range = topicToClients.equal_range(message);
-        for (auto it = range.first; it != range.second; it++) {
-            if (it->second == clientID) {
-                topicToClients.erase(it);
-                break;
+        for (auto candidate = topicToClients.begin(); candidate != topicToClients.end(); ) {
+            if (!wildcardOverlap(message, candidate->first)) {
+                ++candidate;
+                continue;
             }
+            auto range = topicToClients.equal_range(candidate->first);
+            for (auto it = range.first; it != range.second; ) {
+                if (it->second == clientID) {
+                    it = topicToClients.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            candidate = range.second;
         }
         LOG_DEBUG("Client " << clientID << " unsubscribing from " << message);
     } else {
@@ -290,7 +378,7 @@ int main(int argc, char *argv[]) {
             } else if (fd == sockfdTCP) {
                 server::HandleAcceptTCP(sockfdTCP, epollfd);
             } else {
-                server::HandleTCP(fd);
+                server::HandleTCP(fd, epollfd);
             }
         }
     }

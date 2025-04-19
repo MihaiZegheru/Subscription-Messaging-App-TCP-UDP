@@ -40,24 +40,29 @@ void HandleSTDIN(int sockfd, bool &isRunning) {
     if (input == "exit") {
         isRunning = false;
         std::string message = "ext";
-        rc = send(sockfd, message.c_str(), message.length(), 0);
+        strcpy(buff, message.c_str());
+        LOG_DEBUG("HELL");
+        rc = send_all(sockfd, buff, kBuffLen);
+        LOG_DEBUG("HELL");
         CHECK(rc < 0, "send");
     } else if (input == "subscribe") {
         std::cin >> input;
         std::string message = "sub$" + input;
-        rc = send(sockfd, message.c_str(), message.length(), 0);
+        strcpy(buff, message.c_str());
+        rc = send_all(sockfd, buff, kBuffLen);
         CHECK(rc < 0, "send");
 
         LOG_INFO("Subscribed to topic " << input);
     } else if (input == "unsubscribe") {
         std::cin >> input;
         std::string message = "uns$" + input;
-        rc = send(sockfd, message.c_str(), message.length(), 0);
+        strcpy(buff, message.c_str());
+        rc = send_all(sockfd, buff, kBuffLen);
         CHECK(rc < 0, "send");
 
         LOG_INFO("Unsubscribed from topic " << input);
     } else {
-        LOG_INFO("Command does not exist.\n");
+        LOG_DEBUG("Command does not exist.\n");
     }
 }
 
@@ -65,7 +70,7 @@ void HandleSTDIN(int sockfd, bool &isRunning) {
  * May modify reference parameter isRunning.
 */
 void HandleTCP(int sockfd, bool &isRunning) {
-    int rc = recv(sockfd, buff, kBuffLen, 0);
+    int rc = recv_all(sockfd, buff, kBuffLen);
     CHECK(rc < 0, "recv");
 
     if (std::string(buff, 3) == "ext") {
@@ -88,24 +93,21 @@ void HandleTCP(int sockfd, bool &isRunning) {
         memcpy(message.content, buff + offset, kMaxContentLen);
 
         std::stringstream ss;
-        // ss << std::string(inet_ntoa(message.ip))
-        //    << ":" << std::to_string(htons(message.port))
-        //    << " - " << message.topic;
         ss << message.topic;
 
+        int sign = 1;
         switch (message.type) {
             case 0:
                 uint32_t numI;
+                sign = message.content[0] == 1 ? -1 : 1;
                 memcpy(&numI, message.content + 1, sizeof(numI));
-
+                LOG_DEBUG(sign);
                 ss << " - " << kIntType
-                   << " - " << (message.content[0] == 1 ? "-" : "")
-                   << std::to_string(ntohl(numI));
+                   << " - " << std::to_string((int64_t)ntohl(numI) * sign);
                 break;
             case 1:
                 uint16_t numSR;
                 memcpy(&numSR, message.content, sizeof(numSR));
-
                 ss.precision(2);
                 ss << " - " << kShortRealType
                    << " - " << std::fixed
@@ -114,14 +116,13 @@ void HandleTCP(int sockfd, bool &isRunning) {
             case 2:
                 uint32_t numF;
                 memcpy(&numF, message.content + 1, sizeof(numF));
-
                 uint8_t exp;
                 memcpy(&exp, message.content + 1 + sizeof(numF), sizeof(exp));
-
+                sign = message.content[0] == 1 ? -1 : 1;
                 ss.precision(10);
                 ss << " - " << kFloatType
-                   << " - " << std::fixed << (message.content[0] == 1 ? "-" : "")
-                   << (double)ntohl(numF) / std::pow(10, exp);
+                   << " - " << std::fixed
+                   << (double)ntohl(numF) / std::pow(10, exp) * sign;
                 break;
             case 3:
                 ss << " - " << kStringType
@@ -151,7 +152,6 @@ int main(int argc, char *argv[]) {
 
     // Parse arguments
     const char *clientID = argv[1];
-    size_t clientIDLen = strlen(clientID);
     const char *serverIP = argv[2];
     const uint16_t port = atoi(argv[3]);
     CHECK(port == 0, "Invalid port");
@@ -177,7 +177,8 @@ int main(int argc, char *argv[]) {
     CHECK(rc < 0, "connect");
 
     // Send clientID to the server
-    send(sockfd, clientID, clientIDLen, 0);
+    strcpy(buff, clientID);
+    send_all(sockfd, buff, kBuffLen);
 
     // Initialise epoll
     int epollfd = epoll_create1(0);

@@ -1,6 +1,8 @@
 #ifndef COMMON_H__
 #define COMMON_H__
 
+#include <string>
+
 #define CHECK(exp, msg) assert((void(msg), !(exp)))
 
 #define LOG_INFO(msg) std::cout << msg << std::endl
@@ -26,4 +28,37 @@ struct PublishedMessage {
     char content[kMaxContentLen];
 };
 
+int recv_all(int sockfd, void *buffer, size_t len) {
+  size_t bytes_received = 0;
+  size_t bytes_remaining = len;
+  char *buff = (char *)buffer;
+  int res;
+
+  while(bytes_remaining) {
+    res = recv(sockfd, buff + bytes_received, bytes_remaining, 0);
+    CHECK(res < 0, "recv");
+
+    bytes_remaining -= res;
+    bytes_received += res;
+  }
+
+  return bytes_received;
+}
+
+int send_all(int sockfd, void *buffer, size_t len) {
+  size_t bytes_sent = 0;
+  size_t bytes_remaining = len;
+  char *buff = (char *)buffer;
+  int res;
+
+  while(bytes_remaining) {
+    res = send(sockfd, buff + bytes_sent, bytes_remaining, 0);
+    CHECK(res < 0, "send");
+
+    bytes_remaining -= res;
+    bytes_sent += res;
+  }
+
+  return bytes_sent;
+}
 #endif // COMMON_H__
