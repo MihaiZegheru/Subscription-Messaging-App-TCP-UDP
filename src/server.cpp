@@ -17,11 +17,13 @@
 #include <sys/socket.h>
 #include <sys/epoll.h>
 #include <regex>
+#include <set>
 
 #include "common.h"
 
 #ifdef DEBUG
     #include <fstream>
+#include <set>
     std::ofstream fout("log/server_debug_log.txt");
     #define LOG_DEBUG(msg) fout << "DEBUG:: " << msg << std::endl
 #else
@@ -43,6 +45,21 @@ std::unordered_map<std::string, int> clientToSocket;
 std::multimap<std::string, std::string> topicToClients;
 
 namespace {
+
+void PrettyPrintTopicToClients() {
+    std::stringstream ss;
+    std::string currentKey;
+    ss << "\n";
+
+    for (auto it = topicToClients.begin(); it != topicToClients.end(); ++it) {
+        if (it->first != currentKey) {
+            currentKey = it->first;
+            ss << "+ " << currentKey << "\n";
+        }
+        ss << "  + " << it->second << "\n";
+    }
+    LOG_DEBUG(ss.str());
+}
 
 std::vector<std::string> split(const std::string& s, char delim = '/') {
     std::vector<std::string> parts;
@@ -159,6 +176,8 @@ void HandleUDP(int sockfd) {
     std::string topic = std::string(auxBuff, kTopicLen);
     topic.erase(topic.find_last_not_of('\0') + 1);
 
+    std::set<std::string> alreadySent;
+
     LOG_DEBUG("Search for: " + topic);
     for (auto const& candidate : topicToClients) {
         if (!matchesTopic(topic, candidate.first)) {
@@ -167,10 +186,12 @@ void HandleUDP(int sockfd) {
         LOG_DEBUG("Matched with: " + candidate.first);
         auto range = topicToClients.equal_range(candidate.first);
         for (auto it = range.first; it != range.second; it++) {
-            if (clients[(*it).second] == false) {
+            if (clients[(*it).second] == false ||
+                alreadySent.find((*it).second) != alreadySent.end()) {
                 continue;
             }
             rc = send_all(clientToSocket[(*it).second], buff, kBuffLen);
+            alreadySent.insert((*it).second);
             CHECK(rc < 0, "send");
         }
     }
@@ -269,6 +290,7 @@ void HandleTCP(int sockfd, int epollfd) {
         message.erase(0, 4);
         topicToClients.insert({message, clientID});
         LOG_DEBUG("Client " << clientID << " subscribing to " << message);
+        PrettyPrintTopicToClients();
     } else if (message.substr(0, 3) == "uns") {
         message.erase(0, 4);
         for (auto candidate = topicToClients.begin(); candidate != topicToClients.end(); ) {
@@ -287,6 +309,7 @@ void HandleTCP(int sockfd, int epollfd) {
             candidate = range.second;
         }
         LOG_DEBUG("Client " << clientID << " unsubscribing from " << message);
+        PrettyPrintTopicToClients();
     } else {
         LOG_DEBUG("Server command unrecognised: " << message);
     }
