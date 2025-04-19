@@ -11,12 +11,14 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/epoll.h>
+#include <netinet/tcp.h>
 
-// ✅ Your original CHECK macro
 #define CHECK(exp, msg) assert((void(msg), !(exp)))
 
 #ifdef DEBUG
-    #define LOG_DEBUG(msg) std::cout << "DEBUG:: " << msg << std::endl
+    #include <fstream>
+    std::ofstream fout("client_debug_log.txt");
+    #define LOG_DEBUG(msg) fout << "DEBUG:: " << msg << std::endl
 #else
     #define LOG_DEBUG(msg)
 #endif
@@ -43,14 +45,14 @@ void HandleSTDIN(int sockfd, bool &isRunning) {
         isRunning = false;
     } else if (input == "subscribe") {
         std::cin >> input;
-        std::string message = "sub/" + input;
+        std::string message = "sub$" + input;
         rc = send(sockfd, message.c_str(), message.length(), 0);
         CHECK(rc < 0, "send");
 
         LOG_INFO("Subscribed to topic " << input);
     } else if (input == "unsubscribe") {
         std::cin >> input;
-        std::string message = "uns/" + input;
+        std::string message = "uns$" + input;
         rc = send(sockfd, message.c_str(), message.length(), 0);
         CHECK(rc < 0, "send");
 
@@ -67,8 +69,12 @@ void HandleTCP(int sockfd, bool &isRunning) {
     int rc = recv(sockfd, buff, kBuffLen, 0);
     CHECK(rc < 0, "recv");
 
+    LOG_DEBUG(std::string(buff, kBuffLen));
+
     if ((std::string)buff == "exit") {
         isRunning = false;
+    } else {
+        
     }
 }
 
@@ -92,6 +98,11 @@ int main(int argc, char *argv[]) {
     // Initialise TCP socket
     const int sockfd = socket(AF_INET, SOCK_STREAM, 0);
     CHECK(sockfd < 0, "socket");
+
+    // Disable Nagle
+    int flag = 1;
+    rc = setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(int));
+    CHECK(rc < 0, "setsockopt");
 
     // Initialise serverAddr
     sockaddr_in serverAddr;

@@ -22,7 +22,9 @@
 #define CHECK(exp, msg) assert((void(msg), !(exp)))
 
 #ifdef DEBUG
-    #define LOG_DEBUG(msg) std::cout << "DEBUG:: " << msg << std::endl
+    #include <fstream>
+    std::ofstream fout("server_debug_log.txt");
+    #define LOG_DEBUG(msg) fout << "DEBUG:: " << msg << std::endl
 #else
     #define LOG_DEBUG(msg)
 #endif
@@ -30,15 +32,28 @@
 #define LOG_INFO(msg) std::cout << msg << std::endl
 
 const int kMaxClients = 5;
-const int kBuffLen = 256;
+const int kBuffLen = 2000;
 const int kMaxEventsNum = 100;
 
 char buff[kBuffLen];
 
 namespace server {
 
+const int kTopicLen = 50;
+const int kMaxContentLen = 1500;
+const int kIntTypeLen = 40;
+const int kShortRealLen = 16;
+const int kFloatLen = 40;
+
+struct PublishedMessageUDP {
+    std::string topic;
+    int type;
+    char content[kMaxContentLen];
+};
+
 std::unordered_set<std::string> clients;
 std::unordered_map<int, std::string> socketToClient;
+std::unordered_map<std::string, int> clientToSocket;
 std::multimap<std::string, std::string> topicToClients;
 
 /**
@@ -57,8 +72,57 @@ void HandleSTDIN(bool &isRunning) {
     }
 }
 
-void HandleUDP() {
+void HandleUDP(int sockfd) {
+    int rc;
 
+    sockaddr_in clientAddr;
+    socklen_t clientLen = sizeof(clientAddr);
+
+    rc = recvfrom(sockfd, buff, kBuffLen, 0, (struct sockaddr *)&clientAddr,
+                  &clientLen);
+    CHECK(rc < 0, "recvfrom");
+
+    PublishedMessageUDP recvMessage;
+    recvMessage.topic = std::string(buff, kTopicLen);
+    recvMessage.topic.erase(recvMessage.topic.find_last_not_of('\0') + 1);
+    recvMessage.type = buff[kTopicLen];
+    strncpy(recvMessage.content, buff + kTopicLen + 1, kMaxContentLen);
+
+    int contentLen = -1;
+    switch (recvMessage.type) {
+        case 0:
+            contentLen = kIntTypeLen;
+            break;
+        case 1:
+            contentLen = kShortRealLen;
+            break;
+        case 2:
+            contentLen = kFloatLen;
+            break;
+        case 3:
+            contentLen = kMaxContentLen;
+            break;
+        default:
+            LOG_DEBUG("Case " + std::to_string(recvMessage.type) +
+                      " not handled");
+            return;
+    }
+
+    std::string message = std::string("msg") +
+                          "$" + inet_ntoa(clientAddr.sin_addr) +
+                          ":" + std::to_string(htons(clientAddr.sin_port)) +
+                          "$" + recvMessage.topic +
+                          "$" + std::to_string(recvMessage.type) +
+                          "$" + std::string(recvMessage.content, contentLen);
+
+    LOG_DEBUG(message);
+
+    auto range = topicToClients.equal_range(recvMessage.topic);
+    for (auto it = range.first; it != range.second; it++) {
+        rc = send(clientToSocket[(*it).second], message.c_str(),
+                  message.length(), 0);
+        CHECK(rc < 0, "send");
+    }
 }
 
 /**
@@ -73,6 +137,11 @@ void HandleAcceptTCP(int sockfdTCP, int epollfd) {
     // Accept new connection
     int sockfd = accept(sockfdTCP, (sockaddr *)&clientAddr, &clientLen);
     CHECK(sockfd < 0, "accept");
+
+    // Disable Nagle
+    int flag = 1;
+    rc = setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(int));
+    CHECK(rc < 0, "setsockopt");
 
     // Receive message
     rc = recv(sockfd, buff, kBuffLen, 0);
@@ -90,6 +159,7 @@ void HandleAcceptTCP(int sockfdTCP, int epollfd) {
     if (clients.find(clientID) == clients.end()) {
         clients.insert(clientID);
         socketToClient.insert({sockfd, clientID});
+        clientToSocket.insert({clientID, sockfd});
 
         LOG_INFO("New client " << clientID << " connected from "
                  << inet_ntoa(clientAddr.sin_addr) << ":"
@@ -152,6 +222,11 @@ int main(int argc, char *argv[]) {
     const int sockfdTCP = socket(AF_INET, SOCK_STREAM, 0);
     CHECK(sockfdTCP < 0, "socket");
 
+    // Disable Nagle
+    int flag = 1;
+    rc = setsockopt(sockfdTCP, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(int));
+    CHECK(rc < 0, "setsockopt");
+
     // Initialise serverAddr
     sockaddr_in serverAddr;
 
@@ -205,7 +280,7 @@ int main(int argc, char *argv[]) {
             if (fd == STDIN_FILENO) {
                 server::HandleSTDIN(isRunning);
             } else if (fd == sockfdUDP) {
-                server::HandleUDP();
+                server::HandleUDP(fd);
             } else if (fd == sockfdTCP) {
                 server::HandleAcceptTCP(sockfdTCP, epollfd);
             } else {

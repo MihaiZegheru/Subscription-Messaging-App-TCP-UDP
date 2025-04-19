@@ -7,7 +7,7 @@ SERVER_SRC=$(SRCPATHS)/server.cpp
 SUBSCRIBER_SRC=$(SRCPATHS)/subscriber.cpp
 
 
-CXXFLAGS=-Wall -Werror -Wno-error=unused-variable
+CXXFLAGS=-Wall -Werror -Wno-error=unused-variable -DDEBUG
 CXX=g++
 
 all: $(SERVER_BIN) $(SUBSCRIBER_BIN)
