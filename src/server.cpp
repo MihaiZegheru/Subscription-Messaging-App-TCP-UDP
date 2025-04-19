@@ -23,7 +23,7 @@
 
 #ifdef DEBUG
     #include <fstream>
-    std::ofstream fout("server_debug_log.txt");
+    std::ofstream fout("log/server_debug_log.txt");
     #define LOG_DEBUG(msg) fout << "DEBUG:: " << msg << std::endl
 #else
     #define LOG_DEBUG(msg)
