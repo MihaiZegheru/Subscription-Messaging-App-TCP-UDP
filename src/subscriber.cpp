@@ -12,8 +12,17 @@
 #include <sys/socket.h>
 #include <sys/epoll.h>
 #include <netinet/tcp.h>
+#include <cmath>
 
 #include "common.h"
+
+#ifdef DEBUG
+    #include <fstream>
+    std::ofstream fout("log/client_debug_log.txt");
+    #define LOG_DEBUG(msg) fout << "DEBUG:: " << msg << std::endl
+#else
+    #define LOG_DEBUG(msg)
+#endif
 
 char buff[kBuffLen];
 
@@ -30,6 +39,9 @@ void HandleSTDIN(int sockfd, bool &isRunning) {
 
     if (input == "exit") {
         isRunning = false;
+        std::string message = "ext";
+        rc = send(sockfd, message.c_str(), message.length(), 0);
+        CHECK(rc < 0, "send");
     } else if (input == "subscribe") {
         std::cin >> input;
         std::string message = "sub$" + input;
@@ -56,12 +68,72 @@ void HandleTCP(int sockfd, bool &isRunning) {
     int rc = recv(sockfd, buff, kBuffLen, 0);
     CHECK(rc < 0, "recv");
 
-    LOG_DEBUG(std::string(buff, kBuffLen));
-
-    if ((std::string)buff == "exit") {
+    if (std::string(buff, 3) == "ext") {
         isRunning = false;
-    } else {
-        
+    } else if (std::string(buff, 3) == "msg") {
+        PublishedMessage message;
+
+        size_t offset = 0;
+        offset += 3;
+        memcpy(&message.ip, buff + offset, sizeof(message.ip));
+        offset += sizeof(message.ip);
+        memcpy(&message.port, buff + offset, sizeof(message.port));
+        offset += sizeof(message.port);
+
+        message.topic = std::string(buff + offset, kTopicLen);
+        message.topic.erase(message.topic.find_last_not_of('\0') + 1);
+        offset += kTopicLen;
+        message.type = buff[offset];
+        offset += 1;
+        memcpy(message.content, buff + offset, kMaxContentLen);
+
+        std::stringstream ss;
+        // ss << std::string(inet_ntoa(message.ip))
+        //    << ":" << std::to_string(htons(message.port))
+        //    << " - " << message.topic;
+        ss << message.topic;
+
+        switch (message.type) {
+            case 0:
+                uint32_t numI;
+                memcpy(&numI, message.content + 1, sizeof(numI));
+
+                ss << " - " << kIntType
+                   << " - " << (message.content[0] == 1 ? "-" : "")
+                   << std::to_string(ntohl(numI));
+                break;
+            case 1:
+                uint16_t numSR;
+                memcpy(&numSR, message.content, sizeof(numSR));
+
+                ss.precision(2);
+                ss << " - " << kShortRealType
+                   << " - " << std::fixed
+                   << (double)ntohs(numSR) / 100;
+                break;
+            case 2:
+                uint32_t numF;
+                memcpy(&numF, message.content + 1, sizeof(numF));
+
+                uint8_t exp;
+                memcpy(&exp, message.content + 1 + sizeof(numF), sizeof(exp));
+
+                ss.precision(10);
+                ss << " - " << kFloatType
+                   << " - " << std::fixed << (message.content[0] == 1 ? "-" : "")
+                   << (double)ntohl(numF) / std::pow(10, exp);
+                break;
+            case 3:
+                ss << " - " << kStringType
+                   << " - " << std::string(message.content, kMaxContentLen);
+                break;
+            default:
+                LOG_DEBUG("Case " + std::to_string(message.type) +
+                        " not handled");
+                return;
+        }
+
+        LOG_INFO(ss.str());
     }
 }
 
@@ -74,6 +146,8 @@ int main(int argc, char *argv[]) {
     }
 
     int rc;
+
+    setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 
     // Parse arguments
     const char *clientID = argv[1];

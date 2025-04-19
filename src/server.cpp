@@ -19,23 +19,22 @@
 
 #include "common.h"
 
+#ifdef DEBUG
+    #include <fstream>
+    std::ofstream fout("log/server_debug_log.txt");
+    #define LOG_DEBUG(msg) fout << "DEBUG:: " << msg << std::endl
+#else
+    #define LOG_DEBUG(msg)
+#endif
+
 const int kMaxClients = 5;
 
 char buff[kBuffLen];
+char auxBuff[kBuffLen];
 
 namespace server {
 
 const int kTopicLen = 50;
-const int kMaxContentLen = 1500;
-const int kIntTypeLen = 40;
-const int kShortRealLen = 16;
-const int kFloatLen = 40;
-
-struct PublishedMessageUDP {
-    std::string topic;
-    int type;
-    char content[kMaxContentLen];
-};
 
 std::unordered_set<std::string> clients;
 std::unordered_map<int, std::string> socketToClient;
@@ -52,7 +51,15 @@ void HandleSTDIN(bool &isRunning) {
     if (input == "exit") {
         isRunning = false;
 
-        // TODO: Send exit message to clients
+        std::string message = "exit";
+
+        for (auto it = clientToSocket.begin(); it != clientToSocket.end(); it++) {
+            int rc = send((*it).second, message.c_str(),
+                          message.length(), 0);
+            CHECK(rc < 0, "send");
+
+            LOG_INFO("Client " << (*it).first << " disconnected");
+        }
     } else {
         LOG_INFO("Command does not exist.\n");
     }
@@ -64,49 +71,60 @@ void HandleUDP(int sockfd) {
     sockaddr_in clientAddr;
     socklen_t clientLen = sizeof(clientAddr);
 
-    rc = recvfrom(sockfd, buff, kBuffLen, 0, (struct sockaddr *)&clientAddr,
+    rc = recvfrom(sockfd, auxBuff, kBuffLen, 0, (struct sockaddr *)&clientAddr,
                   &clientLen);
     CHECK(rc < 0, "recvfrom");
 
-    PublishedMessageUDP recvMessage;
-    recvMessage.topic = std::string(buff, kTopicLen);
-    recvMessage.topic.erase(recvMessage.topic.find_last_not_of('\0') + 1);
-    recvMessage.type = buff[kTopicLen];
-    strncpy(recvMessage.content, buff + kTopicLen + 1, kMaxContentLen);
+    // PublishedMessageUDP recvMessage;
+    // recvMessage.topic = std::string(buff, kTopicLen);
+    // recvMessage.topic.erase(recvMessage.topic.find_last_not_of('\0') + 1);
+    // recvMessage.type = buff[kTopicLen];
+    // strncpy(recvMessage.content, buff + kTopicLen + 1, kMaxContentLen);
 
-    int contentLen = -1;
-    switch (recvMessage.type) {
-        case 0:
-            contentLen = kIntTypeLen;
-            break;
-        case 1:
-            contentLen = kShortRealLen;
-            break;
-        case 2:
-            contentLen = kFloatLen;
-            break;
-        case 3:
-            contentLen = kMaxContentLen;
-            break;
-        default:
-            LOG_DEBUG("Case " + std::to_string(recvMessage.type) +
-                      " not handled");
-            return;
-    }
+    // int contentLen = -1;
+    // switch (recvMessage.type) {
+    //     case 0:
+    //         contentLen = kIntTypeLen;
+    //         break;
+    //     case 1:
+    //         contentLen = kShortRealLen;
+    //         break;
+    //     case 2:
+    //         contentLen = kFloatLen;
+    //         break;
+    //     case 3:
+    //         contentLen = kMaxContentLen;
+    //         break;
+    //     default:
+    //         LOG_DEBUG("Case " + std::to_string(recvMessage.type) +
+    //                   " not handled");
+    //         return;
+    // }
 
-    std::string message = std::string("msg") +
-                          "$" + inet_ntoa(clientAddr.sin_addr) +
-                          ":" + std::to_string(htons(clientAddr.sin_port)) +
-                          "$" + recvMessage.topic +
-                          "$" + std::to_string(recvMessage.type) +
-                          "$" + std::string(recvMessage.content, contentLen);
+    size_t offset = 0;
+    strcpy(buff + offset, "msg");
+    offset += 3;
+    memcpy(buff + offset, &clientAddr.sin_addr, sizeof(clientAddr.sin_addr));
+    offset += sizeof(clientAddr.sin_addr);
+    memcpy(buff + offset, &clientAddr.sin_port, sizeof(clientAddr.sin_port));
+    offset += sizeof(clientAddr.sin_port);
+    memcpy(buff + offset, auxBuff, kTopicLen + 1 + kMaxContentLen);
+    offset += kTopicLen + 1 + kMaxContentLen;
 
-    LOG_DEBUG(message);
+        int offset2 = offset - kMaxContentLen;
+        std::string deb;
+        for (int i = 0; i < kMaxContentLen; i++) {
+            deb += std::to_string(buff[offset2 + i]) + " ";
+        }
+        LOG_DEBUG(deb);
 
-    auto range = topicToClients.equal_range(recvMessage.topic);
+    // LOG_DEBUG(std::string(buff, kBuffLen));
+    std::string topic = std::string(auxBuff, kTopicLen);
+    topic.erase(topic.find_last_not_of('\0') + 1);
+
+    auto range = topicToClients.equal_range(topic);
     for (auto it = range.first; it != range.second; it++) {
-        rc = send(clientToSocket[(*it).second], message.c_str(),
-                  message.length(), 0);
+        rc = send(clientToSocket[(*it).second], buff, offset, 0);
         CHECK(rc < 0, "send");
     }
 }
@@ -164,7 +182,7 @@ void HandleTCP(int sockfd) {
     std::string message = buff;
     std::string &clientID = socketToClient[sockfd];
 
-    if (message == "exit") {
+    if (message == "ext") {
         clients.erase(clientID);
         LOG_INFO("Client " << clientID << " disconnected");
     } else if (message.substr(0, 3) == "sub") {
@@ -195,6 +213,8 @@ int main(int argc, char *argv[]) {
     }
 
     int rc;
+
+    setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 
     // Parse arguments
     const uint16_t port = atoi(argv[1]);
