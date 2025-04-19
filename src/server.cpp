@@ -17,23 +17,9 @@
 #include <sys/socket.h>
 #include <sys/epoll.h>
 
-// TODO: Move to common file
-
-#define CHECK(exp, msg) assert((void(msg), !(exp)))
-
-#ifdef DEBUG
-    #include <fstream>
-    std::ofstream fout("log/server_debug_log.txt");
-    #define LOG_DEBUG(msg) fout << "DEBUG:: " << msg << std::endl
-#else
-    #define LOG_DEBUG(msg)
-#endif
-
-#define LOG_INFO(msg) std::cout << msg << std::endl
+#include "common.h"
 
 const int kMaxClients = 5;
-const int kBuffLen = 2000;
-const int kMaxEventsNum = 100;
 
 char buff[kBuffLen];
 
