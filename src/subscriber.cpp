@@ -1,18 +1,16 @@
-#include <netinet/in.h>
-#include <cassert>
 #include <arpa/inet.h>
-#include <netdb.h>
-#include <iostream>
-#include <sstream>
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/epoll.h>
-#include <netinet/tcp.h>
+#include <cassert>
 #include <cmath>
+#include <cstring>
+#include <iostream>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <sstream>
+#include <string>
+#include <sys/epoll.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include "common.h"
 
@@ -60,11 +58,9 @@ void RecvBufferToPublishedMessage(char *src, TopicMessage &message) {
     memcpy(message.content, src + offset, kMaxContentLen);
 }
 
-// TODO: Convert std::string type to std::stringview.
-//       Change all const global strings.
 void PrettyPrintTopicMessage(const std::string topic,
-                        const std::string type,
-                        const std::string content) {
+                             const std::string type,
+                             const std::string content) {
     std::stringstream ss;
     ss << topic << " - " << type << " - " << content;
     LOG_INFO(ss.str());
@@ -76,8 +72,8 @@ void PrettyPrintIntMessage(const TopicMessage message) {
     std::string content(std::to_string(
             (int64_t)ntohl(num) * (message.content[0] == 1 ? -1 : 1)));
     PrettyPrintTopicMessage(std::move(message.topic),
-                       std::move(kIntType),
-                       std::move(content));
+                            std::move(kIntType),
+                            std::move(content));
 }
 
 void PrettyPrintShortRealMessage(const TopicMessage message) {
@@ -88,8 +84,8 @@ void PrettyPrintShortRealMessage(const TopicMessage message) {
     ss << std::fixed << (double)ntohs(num) / 100;
     std::string content = ss.str();
     PrettyPrintTopicMessage(std::move(message.topic),
-                       std::move(kShortRealType),
-                       std::move(content));
+                            std::move(kShortRealType),
+                            std::move(content));
 }
 
 void PrettyPrintFloatMessage(const TopicMessage message) {
@@ -104,15 +100,15 @@ void PrettyPrintFloatMessage(const TopicMessage message) {
           (message.content[0] == 1 ? -1 : 1);
     std::string content = ss.str();
     PrettyPrintTopicMessage(std::move(message.topic),
-                       std::move(kFloatType),
-                       std::move(content));
+                            std::move(kFloatType),
+                            std::move(content));
 }
 
 void PrettyPrintStringMessage(const TopicMessage message) {
     std::string content = std::string(message.content, kMaxContentLen);     
     PrettyPrintTopicMessage(std::move(message.topic),
-                       std::move(kStringType),
-                       std::move(content));
+                            std::move(kStringType),
+                            std::move(content));
 }
 
 } // namespace
@@ -246,9 +242,8 @@ int main(int argc, char *argv[]) {
             }
         }
     }
-
+    // Close sockets
     close(sockfd);
     close(epollfd);
-
     return 0;
 }

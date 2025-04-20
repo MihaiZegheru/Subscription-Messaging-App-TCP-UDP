@@ -30,6 +30,7 @@ const int kMaxContentLen = 1500;
 const int kIntTypeLen = 40;
 const int kShortRealLen = 16;
 const int kFloatLen = 40;
+
 const std::string kIntType = "INT";
 const std::string kShortRealType = "SHORT_REAL";
 const std::string kFloatType = "FLOAT";

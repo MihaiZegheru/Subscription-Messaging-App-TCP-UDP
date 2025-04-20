@@ -1,20 +1,20 @@
 SERVER_BIN=server
 SUBSCRIBER_BIN=subscriber
 
-LOGPATH=log
-SERVER_LOG=$(LOGPATH)/server.log
-CLIENT_LOG=$(LOGPATH)/client.log
+LOG_PATH=log
+SERVER_LOG=$(LOG_PATH)/server.log
+CLIENT_LOG=$(LOG_PATH)/client.log
 
-SRCPATH=src
-INCLUDEPATH=include
+SRC_PATH=src
+INCLUDE_PATH=include
 
-SRCS=$(wildcard $(SRCPATH)/*.cpp)
+SRCS=$(wildcard $(SRC_PATH)/*.cpp)
 
-CXXFLAGS=-Wall -Werror -Wno-error=unused-variable -I$(INCLUDEPATH) -DDEBUG
+CXXFLAGS=-std=c++17 -Wall -Werror -Wno-error=unused-variable -I$(INCLUDE_PATH)
 CXX=g++
 
-SERVER_SRC=$(SRCPATH)/server.cpp
-SUBSCRIBER_SRC=$(SRCPATH)/subscriber.cpp
+SERVER_SRC=$(SRC_PATH)/server.cpp
+SUBSCRIBER_SRC=$(SRC_PATH)/subscriber.cpp
 
 all: $(SERVER_BIN) $(SUBSCRIBER_BIN)
 

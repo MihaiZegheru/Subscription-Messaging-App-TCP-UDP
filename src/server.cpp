@@ -1,23 +1,21 @@
+#include <arpa/inet.h>
+#include <cassert>
+#include <cstring>
+#include <iostream>
+#include <map>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
-#include <arpa/inet.h>
-#include <iostream>
-#include <unordered_map>
-#include <unordered_set>
-#include <map>
-#include <vector>
-#include <sstream>
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <cassert>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/epoll.h>
 #include <regex>
 #include <set>
+#include <sstream>
+#include <string>
+#include <sys/epoll.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include "common.h"
 
@@ -124,6 +122,7 @@ std::string BuildMessageBuffer(char *src, char *dest, sockaddr_in addr) {
 
     std::string topic = std::string(src, kTopicLen);
     topic.erase(topic.find_last_not_of('\0') + 1);
+    return topic;
 }
 
 void HandleNewClient(std::string clientID, int sockfd, int epollfd,
@@ -314,7 +313,7 @@ void HandleTCP(int sockfd, int epollfd) {
     CHECK(rc < 0, "recv");
 
     std::string message = buff;
-    std::string &clientID = socketToClient[sockfd];
+    std::string clientID = socketToClient[sockfd];
 
     if (message == "ext") {
         HandleRecvExit(std::move(clientID), sockfd, epollfd);
@@ -417,11 +416,9 @@ int main(int argc, char *argv[]) {
             }
         }
     }
-
     // Close sockets
     close(sockfdUDP);
     close(sockfdTCP);
     close(epollfd);
-
     return 0;
 }
