@@ -7,6 +7,17 @@
 
 #define LOG_INFO(msg) std::cout << msg << std::endl
 
+#ifdef DEBUG
+    #include <fstream>
+    #ifndef LOG_FILE
+        #define LOG_FILE "default.log"
+    #endif
+    std::ofstream _log_file(LOG_FILE, std::ios::app);
+    #define LOG_DEBUG(msg) _log_file << "DEBUG :: " << __FILE__ << ":" << __LINE__ << " :: " << msg << std::endl
+#else
+    #define LOG_DEBUG(msg)
+#endif
+
 const int kBuffLen = 2000;
 const int kMaxEventsNum = 100;
 

@@ -16,18 +16,9 @@
 
 #include "common.h"
 
-#ifdef DEBUG
-    #include <fstream>
-    std::ofstream fout("log/client_debug_log.txt");
-    #define LOG_DEBUG(msg) fout << "DEBUG:: " << msg << std::endl
-#else
-    #define LOG_DEBUG(msg)
-#endif
-
 char buff[kBuffLen];
 
 namespace subscriber {
-
 namespace {
 
 void SendExit(int sockfd) {

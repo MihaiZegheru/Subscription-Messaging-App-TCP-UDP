@@ -21,15 +21,6 @@
 
 #include "common.h"
 
-#ifdef DEBUG
-    #include <fstream>
-#include <set>
-    std::ofstream fout("log/server_debug_log.txt");
-    #define LOG_DEBUG(msg) fout << "DEBUG:: " << msg << std::endl
-#else
-    #define LOG_DEBUG(msg)
-#endif
-
 const int kMaxClients = 5;
 
 char buff[kBuffLen];
@@ -58,7 +49,10 @@ void PrettyPrintTopicToClients() {
         }
         ss << "  + " << it->second << "\n";
     }
-    LOG_DEBUG(ss.str());
+
+    std::string output = ss.str();
+    output.pop_back();
+    LOG_DEBUG(std::move(output));
 }
 
 std::vector<std::string> split(const std::string& s, char delim = '/') {
