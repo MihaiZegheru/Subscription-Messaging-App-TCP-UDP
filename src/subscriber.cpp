@@ -44,7 +44,7 @@ void SendUnsubscribe(int sockfd, const std::string topic) {
     LOG_INFO("Unsubscribed from topic " << topic);
 }
 
-void RecvBufferToPublishedMessage(char *src, PublishedMessage &message) {
+void RecvBufferToPublishedMessage(char *src, TopicMessage &message) {
     size_t offset = 0;
     offset += 3;
     memcpy(&message.ip, src + offset, sizeof(message.ip));
@@ -62,7 +62,7 @@ void RecvBufferToPublishedMessage(char *src, PublishedMessage &message) {
 
 // TODO: Convert std::string type to std::stringview.
 //       Change all const global strings.
-void PrettyPrintMessage(const std::string topic,
+void PrettyPrintTopicMessage(const std::string topic,
                         const std::string type,
                         const std::string content) {
     std::stringstream ss;
@@ -70,29 +70,29 @@ void PrettyPrintMessage(const std::string topic,
     LOG_INFO(ss.str());
 }
 
-void PrettyPrintIntMessage(const PublishedMessage message) {
+void PrettyPrintIntMessage(const TopicMessage message) {
     uint32_t num;
     memcpy(&num, message.content + 1, sizeof(num));
     std::string content(std::to_string(
             (int64_t)ntohl(num) * (message.content[0] == 1 ? -1 : 1)));
-    PrettyPrintMessage(std::move(message.topic),
+    PrettyPrintTopicMessage(std::move(message.topic),
                        std::move(kIntType),
                        std::move(content));
 }
 
-void PrettyPrintShortRealMessage(const PublishedMessage message) {
+void PrettyPrintShortRealMessage(const TopicMessage message) {
     uint16_t num;
     memcpy(&num, message.content, sizeof(num));
     std::stringstream ss;
     ss.precision(2);
     ss << std::fixed << (double)ntohs(num) / 100;
     std::string content = ss.str();
-    PrettyPrintMessage(std::move(message.topic),
+    PrettyPrintTopicMessage(std::move(message.topic),
                        std::move(kShortRealType),
                        std::move(content));
 }
 
-void PrettyPrintFloatMessage(const PublishedMessage message) {
+void PrettyPrintFloatMessage(const TopicMessage message) {
     uint32_t num;
     memcpy(&num, message.content + 1, sizeof(num));
     uint8_t exp;
@@ -103,14 +103,14 @@ void PrettyPrintFloatMessage(const PublishedMessage message) {
        << (double)ntohl(num) / std::pow(10, exp) * 
           (message.content[0] == 1 ? -1 : 1);
     std::string content = ss.str();
-    PrettyPrintMessage(std::move(message.topic),
+    PrettyPrintTopicMessage(std::move(message.topic),
                        std::move(kFloatType),
                        std::move(content));
 }
 
-void PrettyPrintStringMessage(const PublishedMessage message) {
+void PrettyPrintStringMessage(const TopicMessage message) {
     std::string content = std::string(message.content, kMaxContentLen);     
-    PrettyPrintMessage(std::move(message.topic),
+    PrettyPrintTopicMessage(std::move(message.topic),
                        std::move(kStringType),
                        std::move(content));
 }
@@ -143,7 +143,7 @@ bool HandleTCP(int sockfd) {
     if (std::string(buff, 3) == "ext") {
         return false;
     } else if (std::string(buff, 3) == "msg") {
-        PublishedMessage message;
+        TopicMessage message;
         RecvBufferToPublishedMessage(buff, message);
         switch (message.type) {
             case 0:

@@ -49,13 +49,12 @@ void PrettyPrintTopicToClients() {
         }
         ss << "  + " << it->second << "\n";
     }
-
     std::string output = ss.str();
     output.pop_back();
     LOG_DEBUG(std::move(output));
 }
 
-std::vector<std::string> split(const std::string& s, char delim = '/') {
+std::vector<std::string> SplitPattern(const std::string& s, char delim) {
     std::vector<std::string> parts;
     std::stringstream ss(s);
     std::string part;
@@ -65,14 +64,13 @@ std::vector<std::string> split(const std::string& s, char delim = '/') {
     return parts;
 }
 
-bool wildcardOverlap(const std::string& a, const std::string& b) {
-    auto A = split(a);
-    auto B = split(b);
+bool ArePatternsOverlapping(const std::string& a, const std::string& b) {
+    auto A = SplitPattern(a, '/');
+    auto B = SplitPattern(b, '/');
 
     size_t i = 0, j = 0;
     while (i < A.size() && j < B.size()) {
         if (A[i] == "*" || B[j] == "*") {
-            // '*' can consume one or more segments — optimistic overlap
             return true;
         }
         if (A[i] == "+" || B[j] == "+" || A[i] == B[j]) {
@@ -81,122 +79,216 @@ bool wildcardOverlap(const std::string& a, const std::string& b) {
         }
         return false;
     }
-
-    // handle tail segments
     if ((i == A.size() && j == B.size()) ||
         (i < A.size() && A[i] == "*") ||
         (j < B.size() && B[j] == "*")) {
         return true;
     }
-
     return false;
 }
 
-std::string wildcardToRegex(const std::string& wildcard) {
+std::string PatternToRegex(const std::string& pattern) {
     std::string regex = "^";
-    for (size_t i = 0; i < wildcard.size(); ++i) {
-        if (wildcard[i] == '*') {
+    for (size_t i = 0; i < pattern.size(); ++i) {
+        if (pattern[i] == '*') {
             regex += ".*";
-        } else if (wildcard[i] == '+') {
+        } else if (pattern[i] == '+') {
             regex += "[^/]+";
         } else {
-            // escape regex special characters
-            if (std::string(".^$|()[]{}\\").find(wildcard[i]) != std::string::npos) {
+            if (std::string(".^$|()[]{}\\").find(pattern[i]) != std::string::npos) {
                 regex += '\\';
             }
-            regex += wildcard[i];
+            regex += pattern[i];
         }
     }
     regex += "$";
     return regex;
 }
 
-// Check if a topic matches any of the subscriptions
-bool matchesTopic(const std::string& topic, const std::string& subscription) {
-    std::string pattern = wildcardToRegex(subscription);
-    std::regex re(pattern);
-    return std::regex_match(topic, re);
+bool MatchesPattern(const std::string& s, const std::string& pattern) {
+    std::string p = PatternToRegex(pattern);
+    std::regex regx(p);
+    return std::regex_match(s, regx);
 }
 
-} // namespace
+std::string BuildMessageBuffer(char *src, char *dest, sockaddr_in addr) {
+    size_t offset = 0;
+    strcpy(dest + offset, "msg");
+    offset += 3;
+    memcpy(dest + offset, &addr.sin_addr, sizeof(addr.sin_addr));
+    offset += sizeof(addr.sin_addr);
+    memcpy(dest + offset, &addr.sin_port, sizeof(addr.sin_port));
+    offset += sizeof(addr.sin_port);
+    memcpy(dest + offset, src, kTopicLen + 1 + kMaxContentLen);
+    offset += kTopicLen + 1 + kMaxContentLen;
 
-/**
- * May modify reference parameter isRunning.
-*/
-void HandleSTDIN(bool &isRunning) {
-    std::string input;
-    std::cin >> input;
+    std::string topic = std::string(src, kTopicLen);
+    topic.erase(topic.find_last_not_of('\0') + 1);
+}
 
-    if (input == "exit") {
-        isRunning = false;
+void HandleNewClient(std::string clientID, int sockfd, int epollfd,
+                     sockaddr_in clientAddr) {
+    clients.insert({clientID, true});
+    socketToClient.insert({sockfd, clientID});
+    clientToSocket.insert({clientID, sockfd});
 
-        std::string message = "ext";
-        
-        for (auto it = clientToSocket.begin(); it != clientToSocket.end(); it++) {
-            if (clients[(*it).first] == false) {
-                continue;
-            }
-            strcpy(buff, message.c_str());
-            int rc = send_all((*it).second, buff, kBuffLen);
-            CHECK(rc < 0, "send");
+    // Add new socket to epoll
+    epoll_event ev;
+    ev.events = EPOLLIN;
+    ev.data.fd = sockfd;
+    int rc = epoll_ctl(epollfd, EPOLL_CTL_ADD, sockfd, &ev);
+    CHECK(rc < 0, "epoll_ctl");
 
-            LOG_INFO("Client " << (*it).first << " disconnected.");
-        }
+    LOG_INFO("New client " << clientID << " connected from "
+                << inet_ntoa(clientAddr.sin_addr) << ":"
+                << htons(clientAddr.sin_port));
+    LOG_DEBUG("New client " << clientID << " connected from "
+                << inet_ntoa(clientAddr.sin_addr) << ":"
+                << htons(clientAddr.sin_port));
+}
+
+void HandleReturningClient(std::string clientID, int sockfd, int epollfd,
+                           sockaddr_in clientAddr) {
+    clients[clientID] = true;
+    socketToClient.insert({sockfd, clientID});
+    clientToSocket.insert({clientID, sockfd});
+
+    // Add new socket to epoll
+    epoll_event ev;
+    ev.events = EPOLLIN;
+    ev.data.fd = sockfd;
+    int rc = epoll_ctl(epollfd, EPOLL_CTL_ADD, sockfd, &ev);
+    CHECK(rc < 0, "epoll_ctl");
+
+    LOG_INFO("New client " << clientID << " connected from "
+                << inet_ntoa(clientAddr.sin_addr) << ":"
+                << htons(clientAddr.sin_port));
+    LOG_DEBUG("Welcome back " << clientID << " connected from "
+                << inet_ntoa(clientAddr.sin_addr) << ":"
+                << htons(clientAddr.sin_port));
+}
+
+void HandleConnectionRefused(std::string clientID, int sockfd) {
+    LOG_INFO("Client " << clientID << " already connected.");
+    LOG_DEBUG("Client " << clientID << " already connected.");
+    
+    std::string message = "ext";
+    strcpy(buff, message.c_str());
+    int rc = send_all(sockfd, buff, kBuffLen);
+    CHECK(rc < 0, "send");
+}
+
+void AuthClient(int sockfd, int epollfd, sockaddr_in clientAddr) {
+    std::string clientID = (std::string)buff;
+    LOG_DEBUG("Received connection request.");
+
+    if (clients.find(clientID) == clients.end()) {
+        HandleNewClient(std::move(clientID), sockfd, epollfd, clientAddr);
+    } else if (clients[clientID] == false) {
+        HandleReturningClient(std::move(clientID), sockfd, epollfd, clientAddr);
     } else {
-        LOG_DEBUG("Command does not exist.\n");
+        HandleConnectionRefused(std::move(clientID), sockfd);
     }
 }
 
-void HandleUDP(int sockfd) {
-    int rc;
+void HandleRecvExit(std::string clientID, int sockfd, int epollfd) {
+    clients[clientID] = false;
+    epoll_ctl(epollfd, EPOLL_CTL_DEL, sockfd, NULL);
+    close(sockfd);
+    LOG_INFO("Client " << clientID << " disconnected.");
+    LOG_DEBUG("Client " << clientID << " disconnected.");
+}
 
-    sockaddr_in clientAddr;
-    socklen_t clientLen = sizeof(clientAddr);
+void HandleRecvSubscribe(std::string message, std::string clientID) {
+    message.erase(0, 4);
+    topicToClients.insert({message, clientID});
+    LOG_DEBUG("Client " << clientID << " subscribing to " << message);
+    PrettyPrintTopicToClients();
+}
 
-    rc = recvfrom(sockfd, auxBuff, kBuffLen, 0, (struct sockaddr *)&clientAddr,
-                  &clientLen);
-    CHECK(rc < 0, "recvfrom");
-
-    size_t offset = 0;
-    strcpy(buff + offset, "msg");
-    offset += 3;
-    memcpy(buff + offset, &clientAddr.sin_addr, sizeof(clientAddr.sin_addr));
-    offset += sizeof(clientAddr.sin_addr);
-    memcpy(buff + offset, &clientAddr.sin_port, sizeof(clientAddr.sin_port));
-    offset += sizeof(clientAddr.sin_port);
-    memcpy(buff + offset, auxBuff, kTopicLen + 1 + kMaxContentLen);
-    offset += kTopicLen + 1 + kMaxContentLen;
-
-    std::string topic = std::string(auxBuff, kTopicLen);
-    topic.erase(topic.find_last_not_of('\0') + 1);
-
-    std::set<std::string> alreadySent;
-
-    LOG_DEBUG("Search for: " + topic);
-    for (auto const& candidate : topicToClients) {
-        if (!matchesTopic(topic, candidate.first)) {
+void HandleRecvUnsubscribe(std::string message, std::string clientID) {
+    message.erase(0, 4);
+    for (auto candidate = topicToClients.begin();
+            candidate != topicToClients.end(); ) {
+        if (!ArePatternsOverlapping(message, candidate->first)) {
+            ++candidate;
             continue;
         }
-        LOG_DEBUG("Matched with: " + candidate.first);
+        auto range = topicToClients.equal_range(candidate->first);
+        for (auto it = range.first; it != range.second; ) {
+            if (it->second == clientID) {
+                it = topicToClients.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        candidate = range.second;
+    }
+    LOG_DEBUG("Client " << clientID << " unsubscribing from " << message);
+    PrettyPrintTopicToClients();
+}
+
+void SendTopicMessage(char *src, std::string topic) {
+    std::set<std::string> alreadySent;
+    for (auto const& candidate : topicToClients) {
+        if (!MatchesPattern(topic, candidate.first)) {
+            continue;
+        }
         auto range = topicToClients.equal_range(candidate.first);
         for (auto it = range.first; it != range.second; it++) {
             if (clients[(*it).second] == false ||
                 alreadySent.find((*it).second) != alreadySent.end()) {
                 continue;
             }
-            rc = send_all(clientToSocket[(*it).second], buff, kBuffLen);
+            int rc = send_all(clientToSocket[(*it).second], src, kBuffLen);
             alreadySent.insert((*it).second);
             CHECK(rc < 0, "send");
         }
     }
 }
 
-/**
- * May modify reference parameters epollfd and fdmax.
-*/
+void CloseServer() {
+    std::string message = "ext";
+    for (auto it = clientToSocket.begin(); it != clientToSocket.end(); it++) {
+        if (clients[(*it).first] == false) {
+            continue;
+        }
+        strcpy(buff, message.c_str());
+        int rc = send_all((*it).second, buff, kBuffLen);
+        CHECK(rc < 0, "send");
+        LOG_INFO("Client " << (*it).first << " disconnected.");
+    }
+}
+
+} // namespace
+
+bool HandleSTDIN() {
+    std::string input;
+    std::cin >> input;
+
+    if (input == "exit") {
+        CloseServer();
+        return false;
+    } else {
+        LOG_DEBUG("Command does not exist.\n");
+    }
+    return true;
+}
+
+void HandleUDP(int sockfd) {
+    int rc;
+    sockaddr_in clientAddr;
+    socklen_t clientLen = sizeof(clientAddr);
+    rc = recvfrom(sockfd, auxBuff, kBuffLen, 0, (struct sockaddr *)&clientAddr,
+                  &clientLen);
+    CHECK(rc < 0, "recvfrom");
+
+    std::string topic = BuildMessageBuffer(auxBuff, buff, clientAddr);
+    SendTopicMessage(buff, std::move(topic));
+}
+
 void HandleAcceptTCP(int sockfdTCP, int epollfd) {
     int rc;
-
     sockaddr_in clientAddr;
     socklen_t clientLen = sizeof(clientAddr);
 
@@ -213,60 +305,11 @@ void HandleAcceptTCP(int sockfdTCP, int epollfd) {
     rc = recv_all(sockfd, buff, kBuffLen);
     CHECK(rc < 0, "recv");
 
-    std::string clientID = (std::string)buff;
-    LOG_DEBUG("Received connection request.");
-
-    if (clients.find(clientID) == clients.end()) {
-        clients.insert({clientID, true});
-        socketToClient.insert({sockfd, clientID});
-        clientToSocket.insert({clientID, sockfd});
-
-        // Add new socket to epoll
-        epoll_event ev;
-        ev.events = EPOLLIN;
-        ev.data.fd = sockfd;
-        rc = epoll_ctl(epollfd, EPOLL_CTL_ADD, sockfd, &ev);
-        CHECK(rc < 0, "epoll_ctl");
-
-        LOG_INFO("New client " << clientID << " connected from "
-                 << inet_ntoa(clientAddr.sin_addr) << ":"
-                 << htons(clientAddr.sin_port));
-        LOG_DEBUG("New client " << clientID << " connected from "
-                 << inet_ntoa(clientAddr.sin_addr) << ":"
-                 << htons(clientAddr.sin_port));
-    } else if (clients[clientID] == false) {
-        clients[clientID] = true;
-        socketToClient.insert({sockfd, clientID});
-        clientToSocket.insert({clientID, sockfd});
-
-        // Add new socket to epoll
-        epoll_event ev;
-        ev.events = EPOLLIN;
-        ev.data.fd = sockfd;
-        rc = epoll_ctl(epollfd, EPOLL_CTL_ADD, sockfd, &ev);
-        CHECK(rc < 0, "epoll_ctl");
-
-        LOG_INFO("New client " << clientID << " connected from "
-                 << inet_ntoa(clientAddr.sin_addr) << ":"
-                 << htons(clientAddr.sin_port));
-        LOG_DEBUG("Welcome back " << clientID << " connected from "
-                 << inet_ntoa(clientAddr.sin_addr) << ":"
-                 << htons(clientAddr.sin_port));
-    } else {
-        LOG_INFO("Client " << clientID << " already connected.");
-        
-        std::string message = "ext";
-        strcpy(buff, message.c_str());
-        int rc = send_all(sockfd, buff, kBuffLen);
-        CHECK(rc < 0, "send");
-
-        LOG_DEBUG("Client " << clientID << " already connected.");
-    }
+    AuthClient(sockfd, epollfd, clientAddr);
 }
 
 void HandleTCP(int sockfd, int epollfd) {
     int rc;
-
     rc = recv_all(sockfd, buff, kBuffLen);
     CHECK(rc < 0, "recv");
 
@@ -274,36 +317,11 @@ void HandleTCP(int sockfd, int epollfd) {
     std::string &clientID = socketToClient[sockfd];
 
     if (message == "ext") {
-        clients[clientID] = false;
-        epoll_ctl(epollfd, EPOLL_CTL_DEL, sockfd, NULL);
-        close(sockfd);
-
-        LOG_INFO("Client " << clientID << " disconnected.");
-        LOG_DEBUG("Client " << clientID << " disconnected.");
+        HandleRecvExit(std::move(clientID), sockfd, epollfd);
     } else if (message.substr(0, 3) == "sub") {
-        message.erase(0, 4);
-        topicToClients.insert({message, clientID});
-        LOG_DEBUG("Client " << clientID << " subscribing to " << message);
-        PrettyPrintTopicToClients();
+        HandleRecvSubscribe(std::move(message), std::move(clientID));
     } else if (message.substr(0, 3) == "uns") {
-        message.erase(0, 4);
-        for (auto candidate = topicToClients.begin(); candidate != topicToClients.end(); ) {
-            if (!wildcardOverlap(message, candidate->first)) {
-                ++candidate;
-                continue;
-            }
-            auto range = topicToClients.equal_range(candidate->first);
-            for (auto it = range.first; it != range.second; ) {
-                if (it->second == clientID) {
-                    it = topicToClients.erase(it);
-                } else {
-                    ++it;
-                }
-            }
-            candidate = range.second;
-        }
-        LOG_DEBUG("Client " << clientID << " unsubscribing from " << message);
-        PrettyPrintTopicToClients();
+        HandleRecvUnsubscribe(std::move(message), std::move(clientID));
     } else {
         LOG_DEBUG("Server command unrecognised: " << message);
     }
@@ -389,7 +407,7 @@ int main(int argc, char *argv[]) {
             int fd = events[i].data.fd;
 
             if (fd == STDIN_FILENO) {
-                server::HandleSTDIN(isRunning);
+                isRunning = server::HandleSTDIN();
             } else if (fd == sockfdUDP) {
                 server::HandleUDP(fd);
             } else if (fd == sockfdTCP) {

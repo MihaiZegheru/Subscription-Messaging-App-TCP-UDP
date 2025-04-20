@@ -35,7 +35,7 @@ const std::string kShortRealType = "SHORT_REAL";
 const std::string kFloatType = "FLOAT";
 const std::string kStringType = "STRING";
 
-struct PublishedMessage {
+struct TopicMessage {
     in_addr ip;
     uint16_t port;
     std::string topic;
