@@ -126,16 +126,13 @@ void PrettyPrintStringMessage(const PublishedMessage message) {
 
 } // namespace
 
-/**
- * May modify reference parameter isRunning.
-*/
-void HandleSTDIN(int sockfd, bool &isRunning) {
+bool HandleSTDIN(int sockfd) {
     std::string input;
     std::cin >> input;
 
     if (input == "exit") {
-        isRunning = false;
         SendExit(sockfd);
+        return false;
     } else if (input == "subscribe") {
         std::cin >> input;
         SendSubscribe(sockfd, std::move(input));
@@ -143,19 +140,17 @@ void HandleSTDIN(int sockfd, bool &isRunning) {
         std::cin >> input;
         SendUnsubscribe(sockfd, std::move(input));
     } else {
-        LOG_DEBUG("Command does not exist.\n");
+        LOG_DEBUG("Command does not exist");
     }
+    return true;
 }
 
-/**
- * May modify reference parameter isRunning.
-*/
-void HandleTCP(int sockfd, bool &isRunning) {
+bool HandleTCP(int sockfd) {
     int rc = recv_all(sockfd, buff, kBuffLen);
     CHECK(rc < 0, "recv");
 
     if (std::string(buff, 3) == "ext") {
-        isRunning = false;
+        return false;
     } else if (std::string(buff, 3) == "msg") {
         PublishedMessage message;
         RecvBufferToPublishedMessage(buff, message);
@@ -173,18 +168,21 @@ void HandleTCP(int sockfd, bool &isRunning) {
                 PrettyPrintStringMessage(std::move(message));
                 break;
             default:
-                LOG_DEBUG("Case " + std::to_string(message.type) +
-                        " not handled");
-                return;
+                LOG_DEBUG("Case " +
+                          std::to_string(message.type) +
+                          " not handled");
+                break;
         }
     }
+    return true;
 }
 
 } // namespace subscriber
 
 int main(int argc, char *argv[]) {
     if (argc != 4) {
-        std::cout << "Usage: " << argv[0] << " <client_id> <server_ip> <server_port>\n";
+        std::cout << "Usage: " << argv[0]
+                  << " <client_id> <server_ip> <server_port>\n";
         return 1;
     }
 
@@ -251,9 +249,9 @@ int main(int argc, char *argv[]) {
             int fd = events[i].data.fd;
 
             if (fd == STDIN_FILENO) {
-                subscriber::HandleSTDIN(sockfd, isRunning);
+                isRunning = subscriber::HandleSTDIN(sockfd);
             } else if (fd == sockfd) {
-                subscriber::HandleTCP(sockfd, isRunning);
+                isRunning = subscriber::HandleTCP(sockfd);
             }
         }
     }
