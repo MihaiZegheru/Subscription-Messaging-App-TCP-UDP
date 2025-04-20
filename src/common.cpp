@@ -4,7 +4,7 @@
 #include <sys/types.h>
 
 #ifdef DEBUG
-    std::ofstream _log_file(LOG_FILE, std::ios::app);  // Define the log file here
+    std::ofstream _log_file(LOG_FILE, std::ios::app);
 #endif
 
 int recv_all(int sockfd, void *buffer, size_t len) {
