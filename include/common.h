@@ -1,6 +1,9 @@
 #ifndef COMMON_H__
 #define COMMON_H__
 
+#include <cassert>
+#include <iostream>
+#include <netdb.h>
 #include <string>
 
 #define CHECK(exp, msg) assert((void(msg), !(exp)))
@@ -12,8 +15,9 @@
     #ifndef LOG_FILE
         #define LOG_FILE "default.log"
     #endif
-    std::ofstream _log_file(LOG_FILE, std::ios::app);
-    #define LOG_DEBUG(msg) _log_file << "DEBUG :: " << __FILE__ << ":" << __LINE__ << " :: " << msg << std::endl
+    extern std::ofstream _log_file;
+    #define LOG_DEBUG(msg) _log_file << "DEBUG :: " << __FILE__ << ":" \
+                                     << __LINE__ << " :: " << msg << std::endl
 #else
     #define LOG_DEBUG(msg)
 #endif
@@ -39,37 +43,7 @@ struct PublishedMessage {
     char content[kMaxContentLen];
 };
 
-int recv_all(int sockfd, void *buffer, size_t len) {
-  size_t bytes_received = 0;
-  size_t bytes_remaining = len;
-  char *buff = (char *)buffer;
-  int res;
+int recv_all(int sockfd, void *buffer, size_t len);
+int send_all(int sockfd, void *buffer, size_t len);
 
-  while(bytes_remaining) {
-    res = recv(sockfd, buff + bytes_received, bytes_remaining, 0);
-    CHECK(res < 0, "recv");
-
-    bytes_remaining -= res;
-    bytes_received += res;
-  }
-
-  return bytes_received;
-}
-
-int send_all(int sockfd, void *buffer, size_t len) {
-  size_t bytes_sent = 0;
-  size_t bytes_remaining = len;
-  char *buff = (char *)buffer;
-  int res;
-
-  while(bytes_remaining) {
-    res = send(sockfd, buff + bytes_sent, bytes_remaining, 0);
-    CHECK(res < 0, "send");
-
-    bytes_remaining -= res;
-    bytes_sent += res;
-  }
-
-  return bytes_sent;
-}
 #endif // COMMON_H__
