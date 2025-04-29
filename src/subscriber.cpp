@@ -58,12 +58,19 @@ void RecvBufferToPublishedMessage(char *src, TopicMessage &message) {
     memcpy(message.content, src + offset, kMaxContentLen);
 }
 
-void PrettyPrintTopicMessage(const std::string topic,
+void PrettyPrintTopicMessage(const std::string address,
+                             const std::string topic,
                              const std::string type,
                              const std::string content) {
     std::stringstream ss;
-    ss << topic << " - " << type << " - " << content;
+    ss << address << " - " << topic << " - " << type << " - " << content;
     LOG_INFO(ss.str());
+}
+
+std::string PrettifyAddress(const TopicMessage message) {
+    std::stringstream ss;
+    ss << inet_ntoa(message.ip) << ":" << message.port;
+    return ss.str();
 }
 
 void PrettyPrintIntMessage(const TopicMessage message) {
@@ -71,7 +78,8 @@ void PrettyPrintIntMessage(const TopicMessage message) {
     memcpy(&num, message.content + 1, sizeof(num));
     std::string content(std::to_string(
             (int64_t)ntohl(num) * (message.content[0] == 1 ? -1 : 1)));
-    PrettyPrintTopicMessage(std::move(message.topic),
+    PrettyPrintTopicMessage(PrettifyAddress(message),
+                            std::move(message.topic),
                             std::move(kIntType),
                             std::move(content));
 }
@@ -83,7 +91,8 @@ void PrettyPrintShortRealMessage(const TopicMessage message) {
     ss.precision(2);
     ss << std::fixed << (double)ntohs(num) / 100;
     std::string content = ss.str();
-    PrettyPrintTopicMessage(std::move(message.topic),
+    PrettyPrintTopicMessage(PrettifyAddress(message),
+                            std::move(message.topic),
                             std::move(kShortRealType),
                             std::move(content));
 }
@@ -99,14 +108,16 @@ void PrettyPrintFloatMessage(const TopicMessage message) {
        << (double)ntohl(num) / std::pow(10, exp) * 
           (message.content[0] == 1 ? -1 : 1);
     std::string content = ss.str();
-    PrettyPrintTopicMessage(std::move(message.topic),
+    PrettyPrintTopicMessage(PrettifyAddress(message),
+                            std::move(message.topic),
                             std::move(kFloatType),
                             std::move(content));
 }
 
 void PrettyPrintStringMessage(const TopicMessage message) {
     std::string content = std::string(message.content, kMaxContentLen);     
-    PrettyPrintTopicMessage(std::move(message.topic),
+    PrettyPrintTopicMessage(PrettifyAddress(message),
+                            std::move(message.topic),
                             std::move(kStringType),
                             std::move(content));
 }
