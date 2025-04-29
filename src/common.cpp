@@ -3,8 +3,6 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 
-#include <cstring>
-
 #ifdef DEBUG
     std::ofstream _log_file(LOG_FILE, std::ios::trunc);
 #endif
