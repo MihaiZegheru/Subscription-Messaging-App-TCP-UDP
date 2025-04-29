@@ -109,7 +109,8 @@ bool MatchesPattern(const std::string& s, const std::string& pattern) {
     return std::regex_match(s, regx);
 }
 
-std::string BuildMessageBuffer(char *src, char *dest, sockaddr_in addr) {
+std::string BuildMessageBuffer(char *src, char *dest, sockaddr_in addr,
+                               PacketLenParam &outLen) {
     size_t offset = 0;
     strcpy(dest + offset, "msg");
     offset += 3;
@@ -119,6 +120,7 @@ std::string BuildMessageBuffer(char *src, char *dest, sockaddr_in addr) {
     offset += sizeof(addr.sin_port);
     memcpy(dest + offset, src, kTopicLen + 1 + kMaxContentLen);
     offset += kTopicLen + 1 + kMaxContentLen;
+    outLen = offset;
 
     std::string topic = std::string(src, kTopicLen);
     topic.erase(topic.find_last_not_of('\0') + 1);
@@ -173,7 +175,7 @@ void HandleConnectionRefused(std::string clientID, int sockfd) {
     
     std::string message = "ext";
     strcpy(buff, message.c_str());
-    int rc = send_all(sockfd, buff, kBuffLen);
+    int rc = send_all(sockfd, buff, message.length());
     CHECK(rc < 0, "send");
 }
 
@@ -227,7 +229,7 @@ void HandleRecvUnsubscribe(std::string message, std::string clientID) {
     PrettyPrintTopicToClients();
 }
 
-void SendTopicMessage(char *src, std::string topic) {
+void SendTopicMessage(char *src, PacketLenParam len, std::string topic) {
     std::set<std::string> alreadySent;
     for (auto const& candidate : topicToClients) {
         if (!MatchesPattern(topic, candidate.first)) {
@@ -239,7 +241,7 @@ void SendTopicMessage(char *src, std::string topic) {
                 alreadySent.find((*it).second) != alreadySent.end()) {
                 continue;
             }
-            int rc = send_all(clientToSocket[(*it).second], src, kBuffLen);
+            int rc = send_all(clientToSocket[(*it).second], src, len);
             alreadySent.insert((*it).second);
             CHECK(rc < 0, "send");
         }
@@ -253,7 +255,7 @@ void CloseServer() {
             continue;
         }
         strcpy(buff, message.c_str());
-        int rc = send_all((*it).second, buff, kBuffLen);
+        int rc = send_all((*it).second, buff, message.length());
         CHECK(rc < 0, "send");
         LOG_INFO("Client " << (*it).first << " disconnected.");
     }
@@ -282,8 +284,9 @@ void HandleUDP(int sockfd) {
                   &clientLen);
     CHECK(rc < 0, "recvfrom");
 
-    std::string topic = BuildMessageBuffer(auxBuff, buff, clientAddr);
-    SendTopicMessage(buff, std::move(topic));
+    PacketLenParam len;
+    std::string topic = BuildMessageBuffer(auxBuff, buff, clientAddr, len);
+    SendTopicMessage(buff, len, std::move(topic));
 }
 
 void HandleAcceptTCP(int sockfdTCP, int epollfd) {

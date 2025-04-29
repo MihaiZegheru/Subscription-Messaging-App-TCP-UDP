@@ -22,14 +22,14 @@ namespace {
 void SendExit(int sockfd) {
     std::string message = "ext";
     strcpy(buff, message.c_str());
-    int rc = send_all(sockfd, buff, kBuffLen);
+    int rc = send_all(sockfd, buff, message.length());
     CHECK(rc < 0, "send");
 }
 
 void SendSubscribe(int sockfd, const std::string topic) {
     std::string message = "sub$" + topic;
     strcpy(buff, message.c_str());
-    int rc = send_all(sockfd, buff, kBuffLen);
+    int rc = send_all(sockfd, buff, message.length());
     CHECK(rc < 0, "send");
     LOG_INFO("Subscribed to topic " << topic);
 }
@@ -37,7 +37,7 @@ void SendSubscribe(int sockfd, const std::string topic) {
 void SendUnsubscribe(int sockfd, const std::string topic) {
     std::string message = "uns$" + topic;
     strcpy(buff, message.c_str());
-    int rc = send_all(sockfd, buff, kBuffLen);
+    int rc = send_all(sockfd, buff, message.length());
     CHECK(rc < 0, "send");
     LOG_INFO("Unsubscribed from topic " << topic);
 }
@@ -205,7 +205,7 @@ int main(int argc, char *argv[]) {
 
     // Send clientID to the server
     strcpy(buff, clientID);
-    send_all(sockfd, buff, kBuffLen);
+    send_all(sockfd, buff, 20);
 
     // Initialise epoll
     int epollfd = epoll_create1(0);

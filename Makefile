@@ -10,7 +10,7 @@ INCLUDE_PATH=include
 
 SRCS=$(wildcard $(SRC_PATH)/*.cpp)
 
-CXXFLAGS=-std=c++17 -Wall -Werror -Wno-error=unused-variable -I$(INCLUDE_PATH)
+CXXFLAGS=-std=c++17 -Wall -Werror -Wno-error=unused-variable -I$(INCLUDE_PATH) -DDEBUG
 CXX=g++
 
 SERVER_SRC=$(SRC_PATH)/server.cpp

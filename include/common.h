@@ -22,6 +22,8 @@
     #define LOG_DEBUG(msg)
 #endif
 
+typedef size_t PacketLenParam;
+
 const int kBuffLen = 2000;
 const int kMaxEventsNum = 100;
 
@@ -44,7 +46,7 @@ struct TopicMessage {
     char content[kMaxContentLen];
 };
 
-int recv_all(int sockfd, void *buffer, size_t len);
-int send_all(int sockfd, void *buffer, size_t len);
+int recv_all(int sockfd, void *buffer, PacketLenParam len);
+int send_all(int sockfd, void *buffer, PacketLenParam len);
 
 #endif // COMMON_H__
